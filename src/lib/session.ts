@@ -7,12 +7,18 @@ import { TIERS } from "@/config/game";
 import type { DailyChallenge } from "@/lib/questions";
 import type { GameStore } from "@/lib/progress/store";
 import { recordCompletion, type PlayerProgress } from "@/lib/progress/streak";
+import { isExpired, QUESTION_TIME_LIMIT_MS, remainingMs } from "@/lib/timer";
 import type { ValidationResult } from "@/lib/validation";
+
+export type AnswerOutcome = "correct" | "incorrect" | "timeout";
 
 export interface AnswerRecord {
   questionId: string;
-  speciesId: number;
+  /** null when the timer ran out before a valid Pokémon was submitted. */
+  speciesId: number | null;
   correct: boolean;
+  /** Older saves lack this; derive with `outcomeOf`. */
+  outcome?: AnswerOutcome;
   tier: BallTier | null;
   points: number;
   share: number;
@@ -26,6 +32,12 @@ export interface DailySession {
   date: string;
   answers: AnswerRecord[];
   completed: boolean;
+  /** Wall-clock start of the current prompt's timer (epoch ms). */
+  timer?: { index: number; startedAt: number };
+}
+
+export function outcomeOf(a: AnswerRecord): AnswerOutcome {
+  return a.outcome ?? (a.correct ? "correct" : "incorrect");
 }
 
 export function newSession(challenge: DailyChallenge): DailySession {
@@ -43,10 +55,56 @@ export function loadOrCreateSession(store: GameStore, challenge: DailyChallenge)
   return newSession(challenge);
 }
 
-/** Applies a turn-consuming result (correct / incorrect). Others are ignored. */
-export function applyAnswer(session: DailySession, challenge: DailyChallenge, result: ValidationResult): DailySession {
+export function usedSpeciesIds(session: DailySession): number[] {
+  return session.answers.flatMap((a) => (a.speciesId == null ? [] : [a.speciesId]));
+}
+
+/* ---------------- Timer ---------------- */
+
+/** Starts the current prompt's timer. Idempotent: an already-running timer keeps its start time. */
+export function startTimer(session: DailySession, now: number): DailySession {
+  if (session.completed) return session;
+  const index = session.answers.length;
+  if (session.timer?.index === index) return session;
+  return { ...session, timer: { index, startedAt: now } };
+}
+
+export function isTimerRunning(session: DailySession): boolean {
+  return !session.completed && session.timer?.index === session.answers.length;
+}
+
+/** Time left on the current prompt; the full limit if its timer hasn't started. */
+export function timeLeft(session: DailySession, now: number, limitMs = QUESTION_TIME_LIMIT_MS): number {
+  if (!isTimerRunning(session)) return limitMs;
+  return remainingMs(session.timer!.startedAt, now, limitMs);
+}
+
+/** Records a 0-point timeout if the current prompt's time is up; otherwise unchanged. */
+export function applyTimeout(session: DailySession, challenge: DailyChallenge, now: number, limitMs = QUESTION_TIME_LIMIT_MS): DailySession {
+  if (!isTimerRunning(session) || !isExpired(session.timer!.startedAt, now, limitMs)) return session;
+  const question = challenge.questions[session.answers.length];
+  if (!question) return session;
+  const record: AnswerRecord = { questionId: question.id, speciesId: null, correct: false, outcome: "timeout", tier: null, points: 0, share: 0 };
+  const answers = [...session.answers, record];
+  return { ...session, answers, completed: answers.length >= challenge.questions.length };
+}
+
+/* ---------------- Answers ---------------- */
+
+/**
+ * Applies a turn-consuming result (correct / incorrect real Pokémon). Unknown
+ * names and duplicates are ignored, and so is anything after time ran out.
+ */
+export function applyAnswer(
+  session: DailySession,
+  challenge: DailyChallenge,
+  result: ValidationResult,
+  now: number = Date.now(),
+  limitMs = QUESTION_TIME_LIMIT_MS,
+): DailySession {
   if (session.completed) return session;
   if (result.kind !== "correct" && result.kind !== "incorrect") return session;
+  if (isTimerRunning(session) && isExpired(session.timer!.startedAt, now, limitMs)) return session;
   const question = challenge.questions[session.answers.length];
   if (!question) return session;
   if (session.answers.some((a) => a.speciesId === result.species.id)) return session;
@@ -55,6 +113,7 @@ export function applyAnswer(session: DailySession, challenge: DailyChallenge, re
     questionId: question.id,
     speciesId: result.species.id,
     correct: result.kind === "correct",
+    outcome: result.kind,
     tier: result.score.tier,
     points: result.score.points,
     share: result.score.share,

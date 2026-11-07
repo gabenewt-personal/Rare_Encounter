@@ -17,7 +17,7 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import path from "node:path";
-import { CATEGORY_CONFIG, type QuestionCategory } from "../src/config/game";
+import { CATEGORY_CONFIG, DIFFICULTY_BANDS, PROMPT_FAMILIARITY, type QuestionCategory } from "../src/config/game";
 import type { PokemonType, Question, Species } from "../src/data/types";
 
 const API = "https://pokeapi.co/api/v2";
@@ -41,8 +41,10 @@ const REGIONAL = /-(alola|galar|hisui|paldea)(-(standard|combat-breed|blaze-bree
 let requests = 0;
 let cacheHits = 0;
 
-async function cached<T>(endpoint: string, trim: (raw: any) => T): Promise<T> {
-  const file = path.join(CACHE_DIR, endpoint.replace(/[^a-z0-9-]+/gi, "_") + ".json");
+/** `version` invalidates cached files when the trimmed shape changes. */
+async function cached<T>(endpoint: string, trim: (raw: any) => T, version = 1): Promise<T> {
+  const suffix = version > 1 ? `@v${version}` : "";
+  const file = path.join(CACHE_DIR, endpoint.replace(/[^a-z0-9-]+/gi, "_") + suffix + ".json");
   if (!FRESH && existsSync(file)) {
     cacheHits++;
     return JSON.parse(await readFile(file, "utf8")) as T;
@@ -101,8 +103,12 @@ interface RawSpecies {
   varieties: { slug: string; isDefault: boolean }[];
 }
 interface RawPokemon {
-  id: number; slug: string; types: PokemonType[]; abilities: string[]; moves: string[];
+  id: number; slug: string; types: PokemonType[];
+  abilities: { name: string; hidden: boolean }[];
+  /** levelUp: learned by level-up in at least one game (vs. only TM/egg/tutor). */
+  moves: { name: string; levelUp: boolean }[];
 }
+const POKEMON_TRIM_VERSION = 2;
 interface EvoLink { from: string; to: string; trigger: string; item: string | null; happiness: boolean }
 interface RawChain { id: number; links: EvoLink[]; stages: Record<string, number> }
 
@@ -123,9 +129,12 @@ const trimPokemon = (p: any): RawPokemon => ({
   id: p.id,
   slug: p.name,
   types: p.types.sort((a: any, b: any) => a.slot - b.slot).map((t: any) => t.type.name),
-  abilities: p.abilities.map((a: any) => a.ability.name),
+  abilities: p.abilities.map((a: any) => ({ name: a.ability.name, hidden: a.is_hidden })),
   // Any learn method (level-up, TM/HM/TR, egg, tutor…) in any game PokéAPI records.
-  moves: p.moves.map((m: any) => m.move.name),
+  moves: p.moves.map((m: any) => ({
+    name: m.move.name,
+    levelUp: m.version_group_details.some((d: any) => d.move_learn_method?.name === "level-up"),
+  })),
 });
 
 function trimChain(c: any): RawChain {
@@ -151,6 +160,8 @@ function trimChain(c: any): RawChain {
 }
 
 const trimNamed = (x: any) => ({ slug: x.name, name: en(x.names) ?? x.name });
+const trimMove = (x: any) => ({ ...trimNamed(x), type: x.type?.name as PokemonType, gen: idFromUrl(x.generation.url) });
+const trimAbility = (x: any) => ({ ...trimNamed(x), gen: idFromUrl(x.generation.url) });
 
 /* ------------------------------------------------------------------ */
 /* Main                                                                */
@@ -176,7 +187,7 @@ async function main() {
       else if (REGIONAL.test(v.slug)) formSlugs.push({ speciesId: s.id, slug: v.slug, regional: true });
     }
   }
-  const forms = await mapLimit(formSlugs, (f) => cached(`pokemon/${f.slug}`, trimPokemon), "forms");
+  const forms = await mapLimit(formSlugs, (f) => cached(`pokemon/${f.slug}`, trimPokemon, POKEMON_TRIM_VERSION), "forms");
   const formsBySpecies = new Map<number, { form: RawPokemon; regional: boolean }[]>();
   formSlugs.forEach((f, i) => {
     const arr = formsBySpecies.get(f.speciesId) ?? [];
@@ -240,96 +251,152 @@ async function main() {
   });
 
   // 5. Build candidate questions.
-  type Candidate = Omit<Question, "answers" | "forms"> & { answers: Map<number, number | null> };
+  type Candidate = Omit<Question, "answers" | "forms" | "strong" | "weak"> & {
+    answers: Map<number, number | null>;
+    strong: Set<number>;
+    weak: Set<number>;
+  };
   const candidates: Candidate[] = [];
-  /** Adds a species to a candidate; formId is set only when it qualifies via a regional form alone. */
-  const addMatch = (c: Candidate, speciesId: number, matches: (f: RawPokemon) => boolean) => {
+  const candidate = (c: Omit<Candidate, "answers" | "strong" | "weak">): Candidate => {
+    const full = { ...c, answers: new Map(), strong: new Set<number>(), weak: new Set<number>() };
+    candidates.push(full);
+    return full;
+  };
+  type Relevance = "strong" | "weak" | null;
+  /**
+   * Adds a species if its default form (or failing that, a regional form) matches.
+   * `relevance` classifies how naturally the answer fits THIS prompt — the
+   * prompt-specific signal used by the estimated rarity model. Regional-only
+   * matches are always "weak" (few players think of them).
+   */
+  const addMatch = (
+    c: Candidate,
+    speciesId: number,
+    matches: (f: RawPokemon) => boolean,
+    relevance: (f: RawPokemon) => Relevance = () => null,
+  ) => {
     const fs = formsBySpecies.get(speciesId)!;
     const def = fs.find((f) => !f.regional)!;
-    if (matches(def.form)) c.answers.set(speciesId, null);
-    else {
+    if (matches(def.form)) {
+      c.answers.set(speciesId, null);
+      const r = relevance(def.form);
+      if (r === "strong") c.strong.add(speciesId);
+      if (r === "weak") c.weak.add(speciesId);
+    } else {
       const reg = fs.find((f) => f.regional && matches(f.form));
-      if (reg && !c.answers.has(speciesId)) c.answers.set(speciesId, reg.form.id);
+      if (reg && !c.answers.has(speciesId)) {
+        c.answers.set(speciesId, reg.form.id);
+        c.weak.add(speciesId);
+      }
     }
   };
+  /**
+   * Primary-type members are the "obvious" answers to a type prompt. Flying is
+   * the exception: it's conventionally listed second (Normal/Flying birds), so
+   * any Flying type counts as a textbook answer.
+   */
+  const typeRelevance = (t: PokemonType) => (f: RawPokemon): Relevance =>
+    f.types[0] === t || (t === "flying" && f.types.includes("flying")) ? "strong" : null;
   const cap = (t: string) => t[0].toUpperCase() + t.slice(1);
   const typeName = (t: string) => cap(t);
   const article = (w: string) => (/^[AEIOU]/i.test(w) ? "an" : "a");
 
   // Type.
   for (const t of TYPES) {
-    const c: Candidate = { id: `type:${t}`, category: "type", label: "TYPE", prompt: `Name ${article(t)} ${typeName(t)}-type Pokémon.`, answers: new Map() };
-    for (const s of species) addMatch(c, s.id, (f) => f.types.includes(t));
-    candidates.push(c);
+    const c = candidate({ id: `type:${t}`, category: "type", label: "TYPE", prompt: `Name ${article(t)} ${typeName(t)}-type Pokémon.` });
+    for (const s of species) addMatch(c, s.id, (f) => f.types.includes(t), typeRelevance(t));
   }
   // Dual type (exact pair, order-insensitive).
   for (let i = 0; i < TYPES.length; i++) {
     for (let j = i + 1; j < TYPES.length; j++) {
       const a = TYPES[i], b = TYPES[j];
-      const c: Candidate = { id: `dual:${a}-${b}`, category: "dualType", label: "DUAL TYPE", prompt: `Name a Pokémon with both ${typeName(a)} and ${typeName(b)} typing.`, answers: new Map() };
+      const c = candidate({ id: `dual:${a}-${b}`, category: "dualType", label: "DUAL TYPE", prompt: `Name a Pokémon with both ${typeName(a)} and ${typeName(b)} typing.` });
       for (const s of species) addMatch(c, s.id, (f) => f.types.length === 2 && f.types.includes(a) && f.types.includes(b));
-      candidates.push(c);
     }
   }
   // Generation.
   for (let g = 1; g <= 9; g++) {
-    const c: Candidate = { id: `gen:${g}`, category: "generation", label: "GENERATION", prompt: `Name a Pokémon introduced in Generation ${ROMAN[g]}.`, answers: new Map() };
+    const c = candidate({ id: `gen:${g}`, category: "generation", label: "GENERATION", prompt: `Name a Pokémon introduced in Generation ${ROMAN[g]}.` });
     for (const s of species) if (s.gen === g) c.answers.set(s.id, null);
-    candidates.push(c);
   }
   // Type + generation.
   for (const t of TYPES) {
     for (let g = 1; g <= 9; g++) {
-      const c: Candidate = { id: `typegen:${t}-${g}`, category: "typeGeneration", label: "TYPE + GEN", prompt: `Name ${article(t)} ${typeName(t)}-type Pokémon introduced in Generation ${ROMAN[g]}.`, answers: new Map() };
-      for (const s of species) if (s.gen === g) addMatch(c, s.id, (f) => f.types.includes(t));
-      candidates.push(c);
+      const c = candidate({ id: `typegen:${t}-${g}`, category: "typeGeneration", label: "TYPE + GEN", prompt: `Name ${article(t)} ${typeName(t)}-type Pokémon introduced in Generation ${ROMAN[g]}.` });
+      for (const s of species) if (s.gen === g) addMatch(c, s.id, (f) => f.types.includes(t), typeRelevance(t));
     }
   }
 
-  // Moves & abilities: count first, then only fetch English names for usable ones.
+  // First letter of the official English name (accents stripped, so Flabébé is under F).
+  for (const letter of "ABCDEFGHIJKLMNOPQRSTUVWXYZ") {
+    const c = candidate({ id: `letter:${letter.toLowerCase()}`, category: "letter", label: "NAME", prompt: `Name a Pokémon whose name starts with ${letter}.` });
+    for (const s of species) {
+      if (s.name.normalize("NFKD").replace(/[\u0300-\u036f]/g, "").toUpperCase().startsWith(letter)) c.answers.set(s.id, null);
+    }
+  }
+
+  // Moves & abilities: count first, then only fetch details for usable ones.
   const moveLearners = new Map<string, Set<number>>();
   const abilityHolders = new Map<string, Set<number>>();
   for (const s of species) {
     for (const { form } of formsBySpecies.get(s.id)!) {
-      for (const m of form.moves) (moveLearners.get(m) ?? moveLearners.set(m, new Set()).get(m)!).add(s.id);
-      for (const a of form.abilities) (abilityHolders.get(a) ?? abilityHolders.set(a, new Set()).get(a)!).add(s.id);
+      for (const { name: m } of form.moves) (moveLearners.get(m) ?? moveLearners.set(m, new Set()).get(m)!).add(s.id);
+      for (const { name: a } of form.abilities) (abilityHolders.get(a) ?? abilityHolders.set(a, new Set()).get(a)!).add(s.id);
     }
   }
-  const inRange = (cat: QuestionCategory, n: number) => n >= CATEGORY_CONFIG[cat].minAnswers && n <= CATEGORY_CONFIG[cat].maxAnswers;
+  const inRange = (cat: QuestionCategory, n: number) => n >= DIFFICULTY_BANDS.hard.minAnswers && n <= CATEGORY_CONFIG[cat].maxAnswers;
   const usableMoves = [...moveLearners].filter(([, set]) => inRange("move", set.size)).map(([m]) => m);
   const usableAbilities = [...abilityHolders].filter(([, set]) => inRange("ability", set.size)).map(([a]) => a);
-  const moveNames = await mapLimit(usableMoves, (m) => cached(`move/${m}`, trimNamed), "moves");
-  const abilityNames = await mapLimit(usableAbilities, (a) => cached(`ability/${a}`, trimNamed), "abilities");
+  const moveInfo = await mapLimit(usableMoves, (m) => cached(`move/${m}`, trimMove, 2), "moves");
+  const abilityInfo = await mapLimit(usableAbilities, (a) => cached(`ability/${a}`, trimAbility, 2), "abilities");
 
-  for (const mv of moveNames) {
-    const c: Candidate = { id: `move:${mv.slug}`, category: "move", label: "MOVE", prompt: `Name a Pokémon that can learn ${mv.name}.`, answers: new Map() };
-    for (const s of species) addMatch(c, s.id, (f) => f.moves.includes(mv.slug));
-    candidates.push(c);
+  // Familiarity: prompts only use moves/abilities from the classic era, so
+  // "can learn X" doesn't become a test of specialised trivia.
+  for (const mv of moveInfo.filter((m) => m.gen <= PROMPT_FAMILIARITY.moveMaxGeneration)) {
+    const c = candidate({ id: `move:${mv.slug}`, category: "move", label: "MOVE", prompt: `Name a Pokémon that can learn ${mv.name}.` });
+    for (const s of species) {
+      addMatch(
+        c,
+        s.id,
+        (f) => f.moves.some((m) => m.name === mv.slug),
+        // Level-up learners that share the move's type are the textbook answers;
+        // TM/egg/tutor-only learners without the type are the deep cuts.
+        (f) => {
+          const levelUp = f.moves.some((m) => m.name === mv.slug && m.levelUp);
+          const stab = f.types.includes(mv.type);
+          return levelUp && stab ? "strong" : !levelUp && !stab ? "weak" : null;
+        },
+      );
+    }
   }
-  for (const ab of abilityNames) {
-    const c: Candidate = { id: `ability:${ab.slug}`, category: "ability", label: "ABILITY", prompt: `Name a Pokémon that can have the ability ${ab.name}.`, answers: new Map() };
-    for (const s of species) addMatch(c, s.id, (f) => f.abilities.includes(ab.slug));
-    candidates.push(c);
+  for (const ab of abilityInfo.filter((a) => a.gen <= PROMPT_FAMILIARITY.abilityMaxGeneration)) {
+    const c = candidate({ id: `ability:${ab.slug}`, category: "ability", label: "ABILITY", prompt: `Name a Pokémon that can have the ability ${ab.name}.` });
+    for (const s of species) {
+      addMatch(
+        c,
+        s.id,
+        (f) => f.abilities.some((a) => a.name === ab.slug),
+        (f) => (f.abilities.some((a) => a.name === ab.slug && !a.hidden) ? "strong" : "weak"),
+      );
+    }
   }
 
   // Evolution methods (credited to the Pokémon that evolves, not the result).
   const itemSlugs = [...new Set(allLinks.filter((l) => l.trigger === "use-item" && l.item).map((l) => l.item!))];
   const itemNames = await mapLimit(itemSlugs, (i) => cached(`item/${i}`, trimNamed), "items");
   for (const it of itemNames) {
-    const c: Candidate = { id: `evo:item-${it.slug}`, category: "evolution", label: "EVOLUTION", prompt: `Name a Pokémon that evolves using ${article(it.name)} ${it.name}.`, answers: new Map() };
+    const c = candidate({ id: `evo:item-${it.slug}`, category: "evolution", label: "EVOLUTION", prompt: `Name a Pokémon that evolves using ${article(it.name)} ${it.name}.` });
     for (const l of allLinks) if (l.trigger === "use-item" && l.item === it.slug && bySlug.has(l.from)) c.answers.set(bySlug.get(l.from)!.id, null);
-    candidates.push(c);
   }
   {
-    const trade: Candidate = { id: "evo:trade", category: "evolution", label: "EVOLUTION", prompt: "Name a Pokémon that evolves by trading.", answers: new Map() };
-    const friend: Candidate = { id: "evo:friendship", category: "evolution", label: "EVOLUTION", prompt: "Name a Pokémon that evolves through high friendship.", answers: new Map() };
+    const trade = candidate({ id: "evo:trade", category: "evolution", label: "EVOLUTION", prompt: "Name a Pokémon that evolves by trading." });
+    const friend = candidate({ id: "evo:friendship", category: "evolution", label: "EVOLUTION", prompt: "Name a Pokémon that evolves through high friendship." });
     for (const l of allLinks) {
       const from = bySlug.get(l.from);
       if (!from) continue;
       if (l.trigger === "trade") trade.answers.set(from.id, null);
       if (l.happiness) friend.answers.set(from.id, null);
     }
-    candidates.push(trade, friend);
   }
 
   // 6. Filter by configured answer-count bounds + verify every answer set.
@@ -342,7 +409,14 @@ async function main() {
     if (answers.some((id) => !speciesIds.has(id))) throw new Error(`${c.id}: answer outside pokédex`);
     const forms: Record<number, number> = {};
     for (const [sid, fid] of c.answers) if (fid != null) forms[sid] = fid;
-    questions.push({ ...c, answers, ...(Object.keys(forms).length ? { forms } : {}) });
+    const { strong, weak, ...rest } = c;
+    questions.push({
+      ...rest,
+      answers,
+      ...(Object.keys(forms).length ? { forms } : {}),
+      ...(strong.size ? { strong: [...strong].sort((a, b) => a - b) } : {}),
+      ...(weak.size ? { weak: [...weak].sort((a, b) => a - b) } : {}),
+    });
   }
 
   const now = new Date().toISOString();

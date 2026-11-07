@@ -60,6 +60,8 @@ export const sfx = {
       { f: N.C5, d: 0.09 }, { f: N.E5, d: 0.09 }, { f: N.G5, d: 0.09 }, { f: N.C6, d: 0.14 },
       { f: 0, d: 0.04 }, { f: N.G5, d: 0.09 }, { f: N.C6, d: 0.09 }, { f: N.E6, d: 0.09 }, { f: N.G6, d: 0.35 },
     ]),
+  tick: () => play([{ f: 1500, d: 0.025, v: 0.035 }]),
+  timeUp: () => play([{ f: 440, d: 0.1 }, { f: 330, d: 0.1 }, { f: 220, d: 0.25, type: "triangle", v: 0.1 }]),
   brokeFree: () => play([{ f: N.E5, d: 0.08 }, { f: N.C5, d: 0.08 }, { f: N.G4, d: 0.2, type: "triangle", v: 0.1 }]),
   victory: () =>
     play([

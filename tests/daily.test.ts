@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { CATEGORY_CONFIG, MAX_PER_CATEGORY, NO_REPEAT_DAYS, QUESTIONS_PER_DAY } from "@/config/game";
+import { CATEGORY_CONFIG, DAILY_LAYOUT, MAX_PER_CATEGORY, NO_REPEAT_DAYS, QUESTIONS_PER_DAY } from "@/config/game";
+import { difficultyOf } from "@/lib/questionDeck";
+import { getSpecies } from "@/lib/pokedex";
 import { addDays, challengeNumber, dateKeyFor, daysBetween, isDateKey, msUntilReset } from "@/lib/dates";
 import { QUESTION_POOL, generateDailyChallenge } from "@/lib/questions";
 
@@ -43,49 +45,63 @@ describe("generateDailyChallenge", () => {
     expect(a).not.toEqual(b);
   });
 
-  it("gives five distinct prompts, ≤2 per category, ordered easy → hard", () => {
+  it("follows the daily layout: 2 easy (≥50), 2 medium (15–49), 1 hard (5–14)", () => {
+    expect(DAILY_LAYOUT).toEqual(["easy", "easy", "medium", "medium", "hard"]);
     for (const c of challenges) {
       expect(c.questions).toHaveLength(QUESTIONS_PER_DAY);
       expect(new Set(c.questions.map((q) => q.id)).size).toBe(QUESTIONS_PER_DAY);
+      const n = c.questions.map((q) => q.answers.length);
+      expect(n[0]).toBeGreaterThanOrEqual(50);
+      expect(n[1]).toBeGreaterThanOrEqual(50);
+      for (const k of [2, 3]) {
+        expect(n[k]).toBeGreaterThanOrEqual(15);
+        expect(n[k]).toBeLessThanOrEqual(49);
+      }
+      expect(n[4]).toBeGreaterThanOrEqual(5);
+      expect(n[4]).toBeLessThanOrEqual(14);
       const perCat = new Map<string, number>();
       for (const q of c.questions) perCat.set(q.category, (perCat.get(q.category) ?? 0) + 1);
       expect(Math.max(...perCat.values())).toBeLessThanOrEqual(MAX_PER_CATEGORY);
-      const counts = c.questions.map((q) => q.answers.length);
-      expect([...counts].sort((a, b) => b - a)).toEqual(counts);
-      for (const q of c.questions) expect(q.answers.length).toBeGreaterThanOrEqual(CATEGORY_CONFIG[q.category].minAnswers);
     }
   });
 
-  it(`keeps repeats ≥${NO_REPEAT_DAYS} days apart (≥10 for tiny pools) over two simulated years`, () => {
-    const poolSize = new Map<string, number>();
-    for (const q of QUESTION_POOL) poolSize.set(q.category, (poolSize.get(q.category) ?? 0) + 1);
+  it("keeps the hard slot rare: at most one prompt under 15 answers per day", () => {
+    for (const c of challenges) expect(c.questions.filter((q) => q.answers.length < 15)).toHaveLength(1);
+  });
+
+  it(`keeps repeats ≥${NO_REPEAT_DAYS} days apart over two simulated years`, () => {
     const lastSeen = new Map<string, number>();
     for (let i = 0; i < 730; i++) {
       for (const q of generateDailyChallenge(addDays("2026-01-01", i)).questions) {
         const prev = lastSeen.get(q.id);
-        const floor = poolSize.get(q.category)! >= 15 ? NO_REPEAT_DAYS : 10;
-        if (prev !== undefined) expect(i - prev, q.id).toBeGreaterThanOrEqual(floor);
+        if (prev !== undefined) expect(i - prev, q.id).toBeGreaterThanOrEqual(NO_REPEAT_DAYS);
         lastSeen.set(q.id, i);
       }
     }
   });
 
-  it("cycles through a whole category pool before it runs dry", () => {
+  it("uses every generation prompt and every hard evolution prompt within a year", () => {
     const used = new Set(challenges.flatMap((c) => c.questions.map((q) => q.id)));
-    for (const q of QUESTION_POOL.filter((x) => x.category === "generation" || x.category === "evolution")) {
-      expect(used.has(q.id), q.id).toBe(true);
-    }
+    const deck = QUESTION_POOL.filter((x) => x.category === "generation" || (x.category === "evolution" && difficultyOf(x) === "hard"));
+    for (const q of deck) expect(used.has(q.id), q.id).toBe(true);
   });
 
-  it("supports custom pools/config without disturbing the default sequence", () => {
+  it("draws answers from every generation over time (all gens stay eligible)", () => {
+    const gens = new Set(challenges.flatMap((c) => c.questions.flatMap((q) => q.answers.map((id) => getSpecies(id)!.gen))));
+    expect([...gens].sort()).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9]);
+  });
+
+  it("supports custom config without disturbing the default sequence", () => {
     const before = generateDailyChallenge("2026-11-06").questions.map((q) => q.id);
-    const custom = generateDailyChallenge("2026-11-06", { categoryConfig: { ...CATEGORY_CONFIG, move: { ...CATEGORY_CONFIG.move, weight: 0 } } });
+    const custom = generateDailyChallenge("2026-11-06", {
+      categoryConfig: { ...CATEGORY_CONFIG, move: { ...CATEGORY_CONFIG.move, weights: {} } },
+    });
     expect(custom.questions.some((q) => q.category === "move")).toBe(false);
     expect(generateDailyChallenge("2026-11-06").questions.map((q) => q.id)).toEqual(before);
   });
 
   it("varies categories over time", () => {
     const cats = new Set(challenges.flatMap((c) => c.questions.map((q) => q.category)));
-    expect(cats.size).toBe(Object.values(CATEGORY_CONFIG).filter((c) => c.weight > 0).length);
+    expect(cats.size).toBe(Object.keys(CATEGORY_CONFIG).length);
   });
 });

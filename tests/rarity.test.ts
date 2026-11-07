@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { TIERS } from "@/config/game";
 import type { Question } from "@/data/types";
 import { QUESTION_POOL } from "@/lib/questions";
-import { EstimatedRarityProvider, ObservedRarityProvider, scoreAnswer, tierForShare } from "@/lib/rarity";
+import { answerLikelihood, EstimatedRarityProvider, ObservedRarityProvider, scoreAnswer, tierForShare } from "@/lib/rarity";
 
 const ghost = QUESTION_POOL.find((q) => q.id === "type:ghost")!;
 
@@ -58,6 +58,45 @@ describe("EstimatedRarityProvider", () => {
 
   it("scores wrong answers as a 0-point miss", () => {
     expect(scoreAnswer(ghost, 25, provider)).toMatchObject({ correct: false, tier: null, points: 0 });
+  });
+});
+
+describe("prompt-specific rarity", () => {
+  const provider = new EstimatedRarityProvider();
+  const q = (id: string) => QUESTION_POOL.find((x) => x.id === id)!;
+  const rank = (qid: string, species: number) =>
+    [...provider.shares(q(qid))].sort((a, b) => b[1] - a[1]).findIndex(([id]) => id === species) + 1;
+
+  it("relevance hints are subsets of the answers", () => {
+    for (const x of QUESTION_POOL) {
+      const ans = new Set(x.answers);
+      for (const id of [...(x.strong ?? []), ...(x.weak ?? [])]) expect(ans.has(id), x.id).toBe(true);
+    }
+  });
+
+  it("textbook fits outrank deep cuts for the same prompt", () => {
+    // Thunderbolt: Pikachu (Electric, level-up) vs Rattata (TM only, Normal)
+    expect(rank("move:thunderbolt", 25)).toBeLessThan(rank("move:thunderbolt", 19));
+    expect(provider.shares(q("move:thunderbolt")).get(25)!).toBeGreaterThan(provider.shares(q("move:thunderbolt")).get(19)! * 5);
+  });
+
+  it("the same Pokémon has different rarity on different prompts", () => {
+    // Gengar: primary Ghost (textbook) but only secondary Poison.
+    const asGhost = provider.shares(q("type:ghost")).get(94)!;
+    const asPoison = provider.shares(q("type:poison")).get(94)!;
+    expect(asGhost).toBeGreaterThan(asPoison);
+    // …and the mascot still leads its own type.
+    expect(rank("type:electric", 25)).toBe(1);
+  });
+
+  it("strong/weak hints move scores in the expected direction", () => {
+    expect(answerLikelihood(25, true, false)).toBeGreaterThan(answerLikelihood(25, false, false));
+    expect(answerLikelihood(25, false, true)).toBeLessThan(answerLikelihood(25, false, false));
+  });
+
+  it("is labelled as an estimate", () => {
+    expect(provider.isEstimate).toBe(true);
+    expect(provider.label).toBe("Estimated");
   });
 });
 

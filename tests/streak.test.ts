@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { activeStreak, emptyProgress, recordCompletion, trainerClassFor, type DayResult } from "@/lib/progress/streak";
 import { MemoryStore } from "@/lib/progress/store";
-import { applyAnswer, loadOrCreateSession, newSession, persistSession, totalScore } from "@/lib/session";
+import { applyAnswer, loadOrCreateSession, newSession, persistSession, totalScore, usedSpeciesIds } from "@/lib/session";
 import { generateDailyChallenge } from "@/lib/questions";
 import { validateAnswer } from "@/lib/validation";
 import { getSpecies } from "@/lib/pokedex";
@@ -85,7 +85,7 @@ describe("daily session persistence", () => {
   function playAll(store: MemoryStore) {
     let s = loadOrCreateSession(store, challenge);
     while (!s.completed) {
-      const used = s.answers.map((a) => a.speciesId);
+      const used = usedSpeciesIds(s);
       const r = validateAnswer(firstValid(s.answers.length, used), challenge.questions[s.answers.length], used);
       s = applyAnswer(s, challenge, r);
       persistSession(store, s);
@@ -118,7 +118,7 @@ describe("daily session persistence", () => {
     const store = new MemoryStore();
     let s = newSession(challenge);
     for (let i = 0; i < 5; i++) {
-      const used = s.answers.map((a) => a.speciesId);
+      const used = usedSpeciesIds(s);
       const wrong = [25, 1, 4, 7, 133, 150, 151, 94].map((n) => getSpecies(n)!).find(
         (sp) => !challenge.questions[i].answers.includes(sp.id) && !used.includes(sp.id),
       )!;

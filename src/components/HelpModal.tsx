@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useRef } from "react";
-import { TIERS, TRAINER_CLASSES } from "@/config/game";
+import { QUESTION_TIME_LIMIT_SECONDS, RESET_TIMEZONE_LABEL, TIERS, TRAINER_CLASSES } from "@/config/game";
 import { PixelBall } from "@/components/PixelBall";
 
 export function HelpModal({ open, onClose }: { open: boolean; onClose: () => void }) {
@@ -21,9 +21,17 @@ export function HelpModal({ open, onClose }: { open: boolean; onClose: () => voi
           <strong>rarer</strong> your correct answer, the more points you earn.
         </p>
         <ul className="modal__list">
+          <li>Prompts go 2 easy → 2 medium → 1 hard.</li>
+          <li>
+            You have <strong>{QUESTION_TIME_LIMIT_SECONDS} seconds</strong> per prompt, starting once it&apos;s fully shown. The clock keeps
+            running if you leave or reload. Running out scores 0. There&apos;s no speed bonus.
+          </li>
           <li>Each species can only be used once per day.</li>
-          <li>Misspelled or unknown names don&apos;t cost a turn. A real Pokémon that doesn&apos;t fit does.</li>
-          <li>A new challenge unlocks every day at 00:00 UTC.</li>
+          <li>Misspelled or unknown names don&apos;t cost a turn (the timer keeps going). A real Pokémon that doesn&apos;t fit does.</li>
+          <li>
+            A new challenge unlocks for everyone at <strong>00:00 {RESET_TIMEZONE_LABEL}</strong> (shown in your local time on the home
+            screen).
+          </li>
         </ul>
 
         <h3 className="modal__sub">RARITY</h3>
@@ -44,8 +52,10 @@ export function HelpModal({ open, onClose }: { open: boolean; onClose: () => voi
           </tbody>
         </table>
         <p className="fineprint">
-          Percentages are the estimated share of trainers who&apos;d give that answer. For now these come from a popularity
-          model (generation, starters, legendaries, fan favourites) — not real submissions — and are fixed for the whole day.
+          Percentages are the <strong>estimated</strong> share of trainers who&apos;d give that answer <em>to that prompt</em>. They come
+          from a model, not real submissions: general familiarity (generation, starters, legendaries, fan favourites) adjusted per
+          prompt. Textbook fits rank higher (Electric types that learn Thunderbolt by level-up), and deep cuts rank lower (TM-only
+          learners, hidden abilities, regional forms). They&apos;re fixed for the whole day.
         </p>
 
         <h3 className="modal__sub">ANSWER RULES</h3>
@@ -55,6 +65,7 @@ export function HelpModal({ open, onClose }: { open: boolean; onClose: () => voi
           <li><strong>Moves</strong> count if learnable by any method (level-up, TM/HM/TR, egg, tutor) in any main-series game.</li>
           <li><strong>Abilities</strong> include hidden abilities.</li>
           <li><strong>Evolution</strong> prompts mean the Pokémon that evolves (Clefairy uses a Moon Stone).</li>
+          <li><strong>Name</strong> prompts use the official English name, ignoring accents (Flabébé starts with F).</li>
         </ul>
 
         <h3 className="modal__sub">TRAINER CLASS</h3>

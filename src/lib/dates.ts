@@ -42,6 +42,11 @@ export function msUntilReset(now: Date = new Date(), offsetHours = RESET_UTC_OFF
   return Math.max(0, next - now.getTime());
 }
 
+/** The instant of the next global reset. */
+export function nextResetAt(now: Date = new Date(), offsetHours = RESET_UTC_OFFSET_HOURS): Date {
+  return new Date(now.getTime() + msUntilReset(now, offsetHours));
+}
+
 export function formatCountdown(ms: number): string {
   const s = Math.floor(ms / 1000);
   const pad = (n: number) => String(n).padStart(2, "0");

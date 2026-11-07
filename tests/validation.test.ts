@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { CATEGORY_CONFIG } from "@/config/game";
+import { CATEGORY_CONFIG, DIFFICULTY_BANDS } from "@/config/game";
 import { ALL_SPECIES, findSpeciesByName, normalizeName } from "@/lib/pokedex";
 import { QUESTION_POOL } from "@/lib/questions";
 import { validateAnswer } from "@/lib/validation";
@@ -117,7 +117,7 @@ describe("question pool integrity", () => {
     const ids = new Set(ALL_SPECIES.map((s) => s.id));
     for (const question of QUESTION_POOL) {
       const cfg = CATEGORY_CONFIG[question.category];
-      expect(question.answers.length, question.id).toBeGreaterThanOrEqual(Math.max(cfg.minAnswers, 3));
+      expect(question.answers.length, question.id).toBeGreaterThanOrEqual(DIFFICULTY_BANDS.hard.minAnswers);
       expect(question.answers.length, question.id).toBeLessThanOrEqual(cfg.maxAnswers);
       expect(new Set(question.answers).size).toBe(question.answers.length);
       for (const a of question.answers) expect(ids.has(a)).toBe(true);

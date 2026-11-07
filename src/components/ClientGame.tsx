@@ -2,18 +2,14 @@
 import dynamic from "next/dynamic";
 
 /**
- * The game depends on the player's clock and localStorage, so it renders only
- * in the browser (no hydration mismatch); the server sends a boot screen.
+ * Pages depend on the player's clock and localStorage, so they render only in
+ * the browser (no hydration mismatch); the server sends a boot screen.
  */
-const Game = dynamic(() => import("@/components/Game"), {
-  ssr: false,
-  loading: () => (
-    <div className="boot" role="status">
-      <span className="blink-slow">LOADING…</span>
-    </div>
-  ),
-});
+const Boot = () => (
+  <div className="boot" role="status">
+    <span className="blink-slow">LOADING…</span>
+  </div>
+);
 
-export default function ClientGame() {
-  return <Game />;
-}
+export const ClientHome = dynamic(() => import("@/components/Home"), { ssr: false, loading: Boot });
+export const ClientDaily = dynamic(() => import("@/components/DailyGame"), { ssr: false, loading: Boot });

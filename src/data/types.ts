@@ -42,6 +42,10 @@ export interface Question {
    * pokemon id of that form (used to show the matching sprite).
    */
   forms?: Record<number, number>;
+  /** Answers that are the "textbook" fit for this prompt (see POPULARITY_MODEL). */
+  strong?: number[];
+  /** Technically-correct deep cuts for this prompt. */
+  weak?: number[];
 }
 
 export interface PokedexFile {

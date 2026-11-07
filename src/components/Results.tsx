@@ -1,22 +1,25 @@
 "use client";
+import Link from "next/link";
 import { useEffect, useState } from "react";
-import { QUESTION_POOL, type DailyChallenge } from "@/lib/questions";
+import { getQuestion, type DailyChallenge } from "@/lib/questions";
 import type { DailySession } from "@/lib/session";
-import { bestAnswer, rarestAnswer, totalScore, MAX_SCORE_PER_QUESTION } from "@/lib/session";
+import { bestAnswer, MAX_SCORE_PER_QUESTION, outcomeOf, rarestAnswer, totalScore } from "@/lib/session";
 import type { PlayerProgress, TrainerClassInfo } from "@/lib/progress/streak";
 import { getSpecies } from "@/lib/pokedex";
-import { getTier } from "@/lib/rarity";
+import { defaultRarityProvider, getTier } from "@/lib/rarity";
 import { buildShareText } from "@/lib/share";
-import { formatCountdown, msUntilReset } from "@/lib/dates";
+import { prefersReducedMotion } from "@/lib/client";
 import { sfx } from "@/lib/audio";
 import { PixelBall } from "@/components/PixelBall";
+import { ResetInfo } from "@/components/ResetInfo";
+import { formatShare } from "@/components/Reveal";
 import { Sprite } from "@/components/Sprite";
 import { TrainerCard } from "@/components/TrainerCard";
 
-function useCountUp(target: number, duration = 1200) {
+function useCountUp(target: number, duration = 1000) {
   const [value, setValue] = useState(0);
   useEffect(() => {
-    const reduce = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+    const reduce = prefersReducedMotion();
     const start = performance.now();
     let raf = 0;
     const tick = (now: number) => {
@@ -30,14 +33,7 @@ function useCountUp(target: number, duration = 1200) {
   return value;
 }
 
-function useCountdown(isDev: boolean) {
-  const [ms, setMs] = useState(() => msUntilReset());
-  useEffect(() => {
-    const t = setInterval(() => setMs(msUntilReset()), 1000);
-    return () => clearInterval(t);
-  }, []);
-  return isDev ? null : ms;
-}
+const nameOf = (id: number | null) => (id == null ? "—" : (getSpecies(id)?.name ?? "?"));
 
 export function Results({
   challenge,
@@ -45,21 +41,24 @@ export function Results({
   trainer,
   progress,
   isDev,
+  homeHref,
 }: {
   challenge: DailyChallenge;
   session: DailySession;
   trainer: TrainerClassInfo;
   progress: PlayerProgress;
   isDev: boolean;
+  homeHref: string;
 }) {
   const total = totalScore(session);
   const shown = useCountUp(total);
   const [copied, setCopied] = useState<"idle" | "ok" | "fail">("idle");
-  const countdown = useCountdown(isDev);
   const best = bestAnswer(session);
   const rarest = rarestAnswer(session);
   const max = MAX_SCORE_PER_QUESTION * challenge.questions.length;
-  const pastScores = Object.values(progress.history).filter((h) => h.date !== session.date).map((h) => h.score);
+  const pastScores = Object.values(progress.history)
+    .filter((h) => h.date !== session.date)
+    .map((h) => h.score);
   const personalBest = pastScores.length > 0 && total > Math.max(...pastScores);
 
   useEffect(() => {
@@ -68,7 +67,7 @@ export function Results({
   }, []);
 
   const share = async () => {
-    const text = buildShareText(session, challenge.number, trainer, typeof window !== "undefined" ? window.location.origin : undefined);
+    const text = buildShareText(session, challenge.number, trainer, window.location.origin);
     try {
       await navigator.clipboard.writeText(text);
       setCopied("ok");
@@ -94,7 +93,7 @@ export function Results({
       <div className="results__banner">
         <div className="results__title blink-slow">CHALLENGE CLEAR!</div>
         <div className="label">
-          DAILY #{challenge.number} · {challenge.date}
+          DAILY #{challenge.number} · {challenge.date} UTC
         </div>
       </div>
 
@@ -107,18 +106,19 @@ export function Results({
 
       <ol className="dialog results__list">
         {session.answers.map((a, i) => {
-          const sp = getSpecies(a.speciesId)!;
-          const q = QUESTION_POOL.find((x) => x.id === a.questionId) ?? challenge.questions[i];
+          const sp = a.speciesId != null ? getSpecies(a.speciesId) : undefined;
+          const q = getQuestion(a.questionId) ?? challenge.questions[i];
+          const out = outcomeOf(a);
           return (
-            <li key={a.questionId} className={`results__row ${a.correct ? "" : "is-miss"}`}>
+            <li key={a.questionId} className={`results__row ${out === "correct" ? "" : "is-miss"}`}>
               <span className="results__sprite">
-                <Sprite id={a.formId ?? sp.id} name={sp.name} size={48} />
+                {sp ? <Sprite id={a.formId ?? sp.id} name={sp.name} size={48} /> : <span className="results__hourglass">⧗</span>}
               </span>
               <span className="results__info">
-                <span className="results__name">{sp.name}</span>
+                <span className="results__name">{sp ? sp.name : "Time's up"}</span>
                 <span className="results__prompt">{q?.prompt}</span>
               </span>
-              <PixelBall tier={a.tier ?? "miss"} size={22} title={a.tier ? getTier(a.tier).label : "Missed"} />
+              <PixelBall tier={a.tier ?? "miss"} size={22} title={a.tier ? getTier(a.tier).label : out === "timeout" ? "Timed out" : "Missed"} />
               <span className="results__pts num">{a.points}</span>
             </li>
           );
@@ -128,30 +128,31 @@ export function Results({
       <div className="results__highlights">
         <div className="dialog dialog--tight">
           <div className="label">BEST ANSWER</div>
-          <div className="results__hl">{best ? `${getSpecies(best.speciesId)!.name} · ${best.points} PTS` : "—"}</div>
+          <div className="results__hl">{best ? `${nameOf(best.speciesId)} · ${best.points} PTS` : "—"}</div>
         </div>
         <div className="dialog dialog--tight">
           <div className="label">RAREST ANSWER</div>
-          <div className="results__hl">
-            {rarest ? `${getSpecies(rarest.speciesId)!.name} · ${(rarest.share * 100).toFixed(1)}%` : "—"}
-          </div>
+          <div className="results__hl">{rarest ? `${nameOf(rarest.speciesId)} · ${formatShare(rarest.share)}` : "—"}</div>
         </div>
       </div>
 
       <TrainerCard info={trainer} best={progress.bestStreak} />
 
-      <button className="btn btn--primary btn--wide" onClick={share}>
-        {copied === "ok" ? "COPIED TO CLIPBOARD!" : copied === "fail" ? "COPY FAILED" : "SHARE RESULTS"}
-      </button>
+      <ResetInfo isDev={isDev} />
+      <p className="fineprint">
+        {defaultRarityProvider.isEstimate
+          ? "Rarity percentages are ESTIMATES from a prompt-specific popularity model — not real player submissions (yet)."
+          : "Rarity percentages come from real player submissions."}
+      </p>
 
-      <div className="results__footer label">
-        {countdown !== null ? (
-          <>NEXT ENCOUNTER IN <span className="num">{formatCountdown(countdown)}</span></>
-        ) : (
-          <>DEV MODE · USE THE DEV PANEL TO CHANGE DAYS</>
-        )}
+      <div className="results__actions">
+        <Link href={homeHref} className="btn btn--primary btn--wide">
+          ◀ RETURN HOME
+        </Link>
+        <button className="btn btn--wide" onClick={share}>
+          {copied === "ok" ? "COPIED TO CLIPBOARD!" : copied === "fail" ? "COPY FAILED" : "SHARE RESULTS"}
+        </button>
       </div>
-      <p className="fineprint">Rarity values are estimates from a popularity model, not real player submissions (yet).</p>
     </div>
   );
 }

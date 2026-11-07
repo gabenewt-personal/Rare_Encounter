@@ -22,6 +22,8 @@ export interface RarityProvider {
   id: string;
   /** True when shares are modelled rather than measured. */
   isEstimate: boolean;
+  /** Short UI label: "Estimated" vs "Player data". */
+  label: string;
   /** Share (0–1) of submissions for each valid answer id. Sums to 1. */
   shares(question: Question): Map<number, number>;
 }
@@ -50,28 +52,41 @@ export function popularityScore(s: Species, model = POPULARITY_MODEL): number {
   if (s.mythical) score += model.mythicalBonus;
   if (s.isFinal && s.stage > 0) score += model.fullyEvolvedBonus;
   if (ICONIC_SPECIES.has(s.id)) score += model.iconicBonus;
+  if (s.id === 25) score += model.mascotBonus;
+  return score;
+}
+
+/**
+ * How readily a player reaches for this species *for this prompt*: general
+ * familiarity (popularityScore) adjusted by the prompt's relevance hints.
+ * E.g. for "learns Thunderbolt", Pikachu/Raichu (level-up, Electric) are
+ * boosted while a TM-only Rattata is pushed down, though it's just as valid.
+ */
+export function answerLikelihood(id: number, strong: boolean, weak: boolean, model = POPULARITY_MODEL): number {
+  const sp = getSpecies(id);
+  if (!sp) return -Infinity;
+  let score = popularityScore(sp, model);
+  if (strong) score += model.strongBonus;
+  if (weak) score -= model.weakPenalty;
   return score;
 }
 
 export class EstimatedRarityProvider implements RarityProvider {
-  id = "estimated-v1";
+  id = "estimated-v2";
   isEstimate = true;
+  label = "Estimated";
   private cache = new Map<string, Map<number, number>>();
   constructor(private model = POPULARITY_MODEL) {}
 
   shares(question: Question): Map<number, number> {
     const hit = this.cache.get(question.id);
     if (hit) return hit;
-    // Rank by popularity, then Zipf by rank. Tied scores share their average
-    // rank, so equally-obscure answers get equal (not arbitrary) shares.
+    // Rank by prompt-specific likelihood, then Zipf by rank. Tied scores share
+    // their average rank, so equally-obscure answers get equal shares.
+    const strong = new Set(question.strong);
+    const weak = new Set(question.weak);
     const ranked = question.answers
-      .map((id) => {
-        const sp = getSpecies(id);
-        let score = sp ? popularityScore(sp, this.model) : -1;
-        // Few players think of a species when only its regional form fits.
-        if (question.forms?.[id]) score -= this.model.regionalOnlyPenalty;
-        return { id, score };
-      })
+      .map((id) => ({ id, score: answerLikelihood(id, strong.has(id), weak.has(id), this.model) }))
       .sort((a, b) => b.score - a.score || a.id - b.id);
     const weights = new Array<number>(ranked.length);
     for (let i = 0; i < ranked.length; ) {
@@ -96,6 +111,7 @@ export class EstimatedRarityProvider implements RarityProvider {
 export class ObservedRarityProvider implements RarityProvider {
   id = "observed-v1";
   isEstimate = false;
+  label = "Player data";
   constructor(
     private countsFor: (questionId: string) => Map<number, number> | undefined,
     private prior: RarityProvider = new EstimatedRarityProvider(),

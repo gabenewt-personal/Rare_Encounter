@@ -1,5 +1,5 @@
 "use client";
-import { useId, useMemo, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { searchSpecies } from "@/lib/pokedex";
 import { sfx } from "@/lib/audio";
 
@@ -16,8 +16,23 @@ export function AnswerInput({ usedIds, disabled, onSubmit }: Props) {
   const [open, setOpen] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const listId = useId();
-  const results = useMemo(() => (value.trim() ? searchSpecies(value, 6) : []), [value]);
-  const showList = open && results.length > 0;
+  const results = useMemo(() => (value.trim() ? searchSpecies(value, 5) : []), [value]);
+  const showList = open && !disabled && results.length > 0;
+
+  // Desktop: jump straight into typing once the prompt is ready. (Touch devices
+  // only open the keyboard on a user tap, so we don't try there.)
+  useEffect(() => {
+    if (!disabled && window.matchMedia?.("(pointer: fine)").matches) inputRef.current?.focus();
+  }, [disabled]);
+
+  /** Once the mobile keyboard is up, bring the timer + prompt + input into view. */
+  const revealAboveKeyboard = () => {
+    if (window.matchMedia?.("(pointer: fine)").matches) return;
+    setTimeout(() => {
+      const q = inputRef.current?.closest(".question");
+      q?.scrollIntoView({ block: "start" });
+    }, 320);
+  };
 
   const choose = (name: string) => {
     sfx.blip();
@@ -69,7 +84,10 @@ export function AnswerInput({ usedIds, disabled, onSubmit }: Props) {
             setActive(0);
             setOpen(true);
           }}
-          onFocus={() => setOpen(true)}
+          onFocus={() => {
+            setOpen(true);
+            revealAboveKeyboard();
+          }}
           onBlur={() => setTimeout(() => setOpen(false), 120)}
           onKeyDown={(e) => {
             if (!showList) return;

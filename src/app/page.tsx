@@ -1,5 +1,5 @@
-import ClientGame from "@/components/ClientGame";
+import { ClientHome } from "@/components/ClientGame";
 
-export default function Home() {
-  return <ClientGame />;
+export default function HomePage() {
+  return <ClientHome />;
 }
