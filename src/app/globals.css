@@ -676,3 +676,84 @@ html[data-kb="open"] .hint { min-height: 0; }
 .reveal__tier { overflow: hidden; }
 
 html[data-kb="open"] .menu__item { min-height: 36px; font-size: 18px; }
+
+/* =====================================================================
+   Team Synergy (six-Pokémon party)
+   ===================================================================== */
+
+.hud { grid-template-columns: 1fr auto; }
+
+/* ---------- Type chips (muted to sit inside the palette) ---------- */
+
+.type { display: inline-block; padding: 3px 4px 2px; font-family: var(--font-display); font-size: 7px; line-height: 1.2; color: #fbf5e2; background: #6b6a5c; box-shadow: inset -2px -2px 0 rgba(0, 0, 0, 0.22); letter-spacing: 0.02em; }
+.type--normal { background: #8a8670; } .type--fire { background: #b3593b; } .type--water { background: #4c73a3; }
+.type--grass { background: #5f8a45; } .type--electric { background: #b89530; color: var(--ink); } .type--ice { background: #6ea5a5; }
+.type--fighting { background: #9a3f36; } .type--poison { background: #7d4f86; } .type--ground { background: #a3824a; }
+.type--flying { background: #7d85b0; } .type--psychic { background: #b55573; } .type--bug { background: #879435; }
+.type--rock { background: #8c7a46; } .type--ghost { background: #5a4f7a; } .type--dragon { background: #5348a0; }
+.type--dark { background: #4d4239; } .type--steel { background: #7f8a93; } .type--fairy { background: #b77a96; }
+
+/* ---------- Party bar (gameplay) ---------- */
+
+.party { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(6, 1fr); gap: 4px; }
+.party__slot { position: relative; aspect-ratio: 1; max-height: 52px; display: grid; place-items: center; background: var(--paper-2); box-shadow: inset 0 0 0 3px var(--ink), inset 0 0 0 5px var(--paper-3); overflow: hidden; }
+.party__slot.is-current { box-shadow: inset 0 0 0 3px var(--gold-dark), inset 0 0 0 5px var(--gold-light); animation: blink 1s steps(1) infinite; }
+.party__sprite { width: 100%; height: 100%; display: grid; place-items: center; overflow: hidden; }
+.party__sprite img { width: 56px; height: 56px; max-width: none; }
+.party__slot.is-incorrect .party__sprite { filter: grayscale(1); opacity: 0.45; }
+.party__icon { font-size: 18px; color: var(--red); }
+.party__ball { position: absolute; right: 3px; bottom: 3px; }
+.party__x { position: absolute; left: 4px; top: 2px; font-size: 12px; color: var(--red); font-weight: 700; }
+html[data-kb="open"] .party { display: none; }
+
+/* ---------- Scoreboard breakdown ---------- */
+
+.scoreboard__calc { margin-top: 4px; color: var(--green-pale); text-align: center; }
+.scoreboard__calc .num { color: var(--gold-light); font-size: 10px; }
+.scoreboard__op { color: var(--paper); }
+.scoreboard__max { margin-top: 2px; color: #8a8d80; }
+
+/* ---------- Party analysis (results) ---------- */
+
+.analysis { display: flex; flex-direction: column; gap: 10px; padding: 12px 10px 10px; margin: var(--px); background: var(--shell-dark); color: var(--paper); box-shadow: 0 calc(var(--px) * -1) 0 var(--ink), 0 var(--px) 0 var(--ink), calc(var(--px) * -1) 0 0 var(--ink), var(--px) 0 0 var(--ink), inset 0 0 0 3px var(--shell); }
+.analysis .label { color: var(--green-pale); }
+.analysis__title { margin: 0; text-align: center; font-family: var(--font-display); font-weight: 400; font-size: 12px; color: var(--gold-light); text-shadow: 2px 2px 0 var(--ink); }
+.analysis__party { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+.member { display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 4px 2px 6px; background: var(--paper); color: var(--ink); box-shadow: inset 0 0 0 3px var(--ink); min-width: 0; }
+.member--empty { justify-content: center; min-height: 96px; background: var(--paper-3); }
+.member__sprite { width: 56px; height: 56px; display: grid; place-items: center; overflow: hidden; }
+.member__sprite img { width: 72px; height: 72px; max-width: none; }
+.member__name { font-size: 14px; line-height: 1.1; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.member__types { display: flex; gap: 2px; flex-wrap: wrap; justify-content: center; }
+
+.synergy { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 2px 10px; padding: 10px 12px; background: var(--ink); box-shadow: inset 0 0 0 3px var(--gold-dark); }
+.synergy__tier { font-family: var(--font-display); font-size: 14px; color: var(--paper); margin-top: 4px; }
+.synergy__mult { grid-row: span 2; font-size: 22px; color: var(--gold-light); text-shadow: 3px 3px 0 var(--gold-dark); }
+.synergy--excellent { box-shadow: inset 0 0 0 3px var(--gold); }
+.synergy--excellent .synergy__tier { color: var(--gold-light); }
+.synergy--poor .synergy__mult { color: #9a9d92; text-shadow: none; }
+.synergy--none { display: block; margin: 0; font-size: 15px; color: var(--green-pale); box-shadow: inset 0 0 0 3px var(--charcoal); }
+
+.defense { display: grid; grid-template-columns: repeat(6, 1fr); gap: 3px; }
+.defense__cell { display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 3px 0 2px; background: var(--charcoal); }
+.defense__cell .type { font-size: 6px; padding: 2px 2px 1px; }
+.defense__net { font-size: 8px; color: var(--paper); }
+.defense--w1 { background: #6a3a33; } .defense--w2 { background: #8a3a31; } .defense--w3 { background: #b4483f; }
+.defense--r1 { background: #31503a; } .defense--r2 { background: #3c6b46; }
+.defense__cell.is-exposed { box-shadow: inset 0 0 0 2px var(--gold-light); }
+.defense__legend { color: #a9ad9c; margin: 0; font-size: 12px; }
+
+.threats { display: flex; flex-direction: column; gap: 6px; padding: 8px 10px; background: var(--paper); color: var(--ink); box-shadow: inset 0 0 0 3px var(--ink); }
+.threats .label { color: var(--green); }
+.threats__row { display: flex; align-items: center; gap: 8px; }
+.threats__row .type { min-width: 64px; text-align: center; }
+.threats__desc { font-size: 15px; }
+.threats__walls { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; padding-top: 4px; border-top: 2px dotted var(--paper-3); }
+
+@media (max-width: 360px) {
+  .defense { grid-template-columns: repeat(3, 1fr); }
+}
+
+/* Stamp just the label so the row never grows past the dialog. */
+.reveal__tier { animation: none; }
+.reveal__tier span:nth-child(2) { display: inline-block; animation: stamp-sm 0.25s steps(3); transform-origin: left center; }

@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useRef } from "react";
-import { QUESTION_TIME_LIMIT_SECONDS, RESET_TIMEZONE_LABEL, TIERS, TRAINER_CLASSES } from "@/config/game";
+import { QUESTION_TIME_LIMIT_SECONDS, RESET_TIMEZONE_LABEL, TEAM_SYNERGY, TIERS, TRAINER_CLASSES } from "@/config/game";
 import { PixelBall } from "@/components/PixelBall";
 
 export function HelpModal({ open, onClose }: { open: boolean; onClose: () => void }) {
@@ -17,11 +17,12 @@ export function HelpModal({ open, onClose }: { open: boolean; onClose: () => voi
       <div className="modal__inner dialog">
         <h2 id="help-title" className="modal__title">HOW TO PLAY</h2>
         <p>
-          Every day, all trainers get the same <strong>5 prompts</strong>. Answer each with one Pokémon — the{" "}
-          <strong>rarer</strong> your correct answer, the more points you earn.
+          Every day, all trainers get the same <strong>6 prompts</strong>. Answer each with one Pokémon — the{" "}
+          <strong>rarer</strong> your correct answer, the more points you earn. Your six answers form a{" "}
+          <strong>party</strong>.
         </p>
         <ul className="modal__list">
-          <li>Prompts go 2 easy → 2 medium → 1 hard.</li>
+          <li>Prompts go 2 easy → 3 medium → 1 hard.</li>
           <li>
             You have <strong>{QUESTION_TIME_LIMIT_SECONDS} seconds</strong> per prompt, starting once it&apos;s fully shown. The clock keeps
             running if you leave or reload. Running out scores 0. There&apos;s no speed bonus.
@@ -56,6 +57,33 @@ export function HelpModal({ open, onClose }: { open: boolean; onClose: () => voi
           from a model, not real submissions: general familiarity (generation, starters, legendaries, fan favourites) adjusted per
           prompt. Textbook fits rank higher (Electric types that learn Thunderbolt by level-up), and deep cuts rank lower (TM-only
           learners, hidden abilities, regional forms). They&apos;re fixed for the whole day.
+        </p>
+
+        <h3 className="modal__sub">TEAM SYNERGY</h3>
+        <p>
+          After prompt six, your party&apos;s defensive typing is checked against all 18 attacking types (modern type chart; dual
+          types, 4× weaknesses and immunities count; abilities, items and moves don&apos;t). Types that hit several teammates
+          super-effectively — and that too few teammates resist — add <em>exposure</em>. Low exposure multiplies your rarity
+          score:
+        </p>
+        <table className="modal__table">
+          <tbody>
+            {TEAM_SYNERGY.tiers.map((t, i) => {
+              const lo = i === 0 ? 0 : TEAM_SYNERGY.tiers[i - 1].maxExposure + 1;
+              const range = t.maxExposure === Infinity ? `${lo}+` : lo === t.maxExposure ? `${lo}` : `${lo}–${t.maxExposure}`;
+              return (
+                <tr key={t.id}>
+                  <td>{t.label}</td>
+                  <td>exposure {range}</td>
+                  <td className="num">×{t.multiplier.toFixed(2)}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+        <p className="fineprint">
+          The bonus needs six valid, distinct Pokémon — any miss or timeout keeps your plain rarity score. Rarity is always the
+          main source of points.
         </p>
 
         <h3 className="modal__sub">ANSWER RULES</h3>

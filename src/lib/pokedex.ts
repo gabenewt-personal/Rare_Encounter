@@ -9,7 +9,7 @@
  *  - a few common official/legacy spellings (see EXTRA_ALIASES)
  */
 import pokedexFile from "@/data/generated/pokedex.json";
-import type { PokedexFile, Species } from "@/data/types";
+import type { PokedexFile, PokemonType, Species } from "@/data/types";
 
 const data = pokedexFile as PokedexFile;
 
@@ -20,6 +20,15 @@ const byId = new Map<number, Species>(ALL_SPECIES.map((s) => [s.id, s]));
 
 export function getSpecies(id: number): Species | undefined {
   return byId.get(id);
+}
+
+/** Typing of an answer: the regional form's types when that's what counted, else the default form's. */
+export function answerTypes(speciesId: number, formId?: number): PokemonType[] {
+  if (formId != null) {
+    const f = data.regionalForms?.[String(formId)];
+    if (f) return f.types;
+  }
+  return byId.get(speciesId)?.types ?? [];
 }
 
 /** Normalizes free-text input to a comparable key. */

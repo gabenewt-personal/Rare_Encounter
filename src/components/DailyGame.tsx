@@ -22,7 +22,7 @@ import { getSpecies } from "@/lib/pokedex";
 import { sfx } from "@/lib/audio";
 import { AnswerInput } from "@/components/AnswerInput";
 import { DevPanel } from "@/components/DevPanel";
-import { PixelBall } from "@/components/PixelBall";
+import { PartyBar } from "@/components/PartyBar";
 import { PixelWipe } from "@/components/PixelWipe";
 import { QuestionTimer } from "@/components/QuestionTimer";
 import { Results } from "@/components/Results";
@@ -184,20 +184,6 @@ export default function DailyGame() {
           <span className="label">DAILY #{challenge.number}</span>
           <span className="label hud__date">{formatDateLabel(ctx.date)} · UTC</span>
         </div>
-        <div className="hud__balls" aria-label="Answers so far">
-          {challenge.questions.map((_, i) => {
-            const a = session.answers[i];
-            const showResult = a && !(phase === "reveal" && i === session.answers.length - 1);
-            return (
-              <PixelBall
-                key={i}
-                tier={showResult ? (a.tier ?? "miss") : "empty"}
-                size={20}
-                className={i === qIndex && phase !== "results" ? "hud__current" : ""}
-              />
-            );
-          })}
-        </div>
         <div className="hud__score">
           <span className="label">SCORE</span>
           <span className="num">
@@ -205,6 +191,14 @@ export default function DailyGame() {
           </span>
         </div>
       </div>
+
+      {phase !== "results" && (
+        <PartyBar
+          answers={session.answers}
+          current={phase === "question" ? qIndex : -1}
+          hideFrom={phase === "reveal" ? session.answers.length - 1 : undefined}
+        />
+      )}
 
       {phase === "question" && question && (
         <section className="question" key={question.id}>

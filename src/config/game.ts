@@ -10,7 +10,7 @@
 export const GAME_TITLE = "Rare Encounter";
 
 /** Bump only when you intentionally want a new sequence of daily challenges. */
-export const CHALLENGE_SEED_VERSION = "v2";
+export const CHALLENGE_SEED_VERSION = "v3";
 
 /** Day #1 of the game. Challenge numbers count up from here. */
 export const CHALLENGE_EPOCH = "2026-01-01";
@@ -31,8 +31,18 @@ export const DIFFICULTY_BANDS: Record<Difficulty, { label: string; minAnswers: n
   hard: { label: "HARD", minAnswers: 5, maxAnswers: 14 },
 };
 
-/** The shape of every daily challenge, in play order. */
-export const DAILY_LAYOUT: Difficulty[] = ["easy", "easy", "medium", "medium", "hard"];
+/**
+ * The shape of every daily challenge, in play order. Six prompts = a full
+ * six-Pokémon party for Team Synergy.
+ */
+export const DAILY_LAYOUT: Difficulty[] = ["easy", "easy", "medium", "medium", "medium", "hard"];
+
+/**
+ * Team diversity: a Pokémon type may be the subject of at most this many of
+ * a day's prompts (e.g. never "Ground-type" + "Ground/Rock" + "Ground Gen IV"),
+ * so the day never forces a party full of shared weaknesses.
+ */
+export const MAX_PROMPTS_PER_TYPE = 1;
 
 /** Number of prompts in a daily challenge. */
 export const QUESTIONS_PER_DAY = DAILY_LAYOUT.length;
@@ -160,6 +170,39 @@ export const POPULARITY_MODEL = {
    * submissions ∝ 1 / rank^zipfExponent. Higher = more top-heavy.
    */
   zipfExponent: 1.1,
+};
+
+/* ------------------------------------------------------------------ */
+/* Team Synergy (six-Pokémon party bonus)                              */
+/* ------------------------------------------------------------------ */
+
+/** A full party; the bonus needs this many valid, distinct Pokémon. */
+export const TEAM_SIZE = 6;
+
+export type SynergyTierId = "excellent" | "good" | "fair" | "poor";
+
+export const TEAM_SYNERGY = {
+  /**
+   * Per attacking type: exposure = max(0, weak − (resist + immune) − allowance).
+   * The allowance tolerates a little overlap, as any real party has some.
+   *
+   * Tuned with `npx tsx scripts/synergy-report.ts` (a year of real daily
+   * challenges). The suggested starting values (allowance 2, tiers 0 / 1–2 /
+   * 3–4 / 5+) rated ~50% of thoughtless parties "Excellent" and almost none
+   * "Poor", so the bonus wouldn't reward planning. With the values below:
+   *   players ignoring typing ≈ 16% Excellent · 37% Good · 31% Fair · 17% Poor
+   *   best achievable party   ≈ 99% Excellent, never worse than Good.
+   */
+  overlapAllowance: 1,
+  /** A 4× weakness counts as this many weak teammates (2 = it hurts double). */
+  quadWeaknessWeight: 2,
+  /** Checked in order; first tier whose maxExposure ≥ the team's total wins. */
+  tiers: [
+    { id: "excellent", label: "Excellent", maxExposure: 1, multiplier: 1.15 },
+    { id: "good", label: "Good", maxExposure: 3, multiplier: 1.1 },
+    { id: "fair", label: "Fair", maxExposure: 6, multiplier: 1.05 },
+    { id: "poor", label: "Poor", maxExposure: Infinity, multiplier: 1.0 },
+  ] as { id: SynergyTierId; label: string; maxExposure: number; multiplier: number }[],
 };
 
 /* ------------------------------------------------------------------ */

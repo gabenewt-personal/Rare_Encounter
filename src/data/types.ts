@@ -53,6 +53,17 @@ export interface PokedexFile {
   generatedAt: string;
   source: string;
   species: Species[];
+  /** PokéAPI form id → species + typing, for Alolan/Galarian/Hisuian/Paldean forms. */
+  regionalForms: Record<string, { species: number; types: PokemonType[] }>;
+}
+
+export interface TypeChartFile {
+  datasetVersion: string;
+  generatedAt: string;
+  source: string;
+  types: PokemonType[];
+  /** chart[attacker][defender] = damage multiplier; omitted pairs are 1×. */
+  chart: Record<PokemonType, Partial<Record<PokemonType, number>>>;
 }
 
 export interface QuestionPoolFile {

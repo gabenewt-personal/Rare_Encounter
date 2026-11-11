@@ -8,11 +8,16 @@
  */
 import { TRAINER_CLASSES, UNRANKED_CLASS_NAME } from "@/config/game";
 import { daysBetween } from "@/lib/dates";
-import type { BallTier } from "@/config/game";
+import type { BallTier, SynergyTierId } from "@/config/game";
 
 export interface DayResult {
   date: string;
+  /** Final score (rarity × Team Synergy). Older saves: rarity score only. */
   score: number;
+  /** Rarity points before Team Synergy (absent in pre-synergy saves). */
+  baseScore?: number;
+  synergyTier?: SynergyTierId;
+  multiplier?: number;
   tiers: (BallTier | null)[];
   completedAt: string;
 }

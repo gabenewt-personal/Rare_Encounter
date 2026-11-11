@@ -1,6 +1,6 @@
 # Rare Encounter *(working title)*
 
-A daily Pokémon trivia game where **rare correct answers score more**. Everyone gets the same five prompts each day ("Name a Ghost-type Pokémon", "Name a Pokémon that can learn Thunderbolt"…). Answer with any Pokémon from any generation; the less likely other trainers are to say it, the better the Poké Ball you earn.
+A daily Pokémon trivia game where **rare correct answers score more**. Everyone gets the same six prompts each day ("Name a Ghost-type Pokémon", "Name a Pokémon that can learn Thunderbolt"…). Answer with any Pokémon from any generation; the less likely other trainers are to say it, the better the Poké Ball you earn.
 
 Built with Next.js 16 (App Router) + React 19 + TypeScript, plain structured CSS, and a locally cached PokéAPI dataset. No accounts, no backend, no credentials needed.
 
@@ -19,6 +19,7 @@ npm run dev          # http://localhost:3000
 | `npm run build && npm start` | Production build (the page is fully static) |
 | `npm run data` | Rebuild the dataset from PokéAPI (uses `.cache/`; add `-- --fresh` to refetch) |
 | `npx tsx scripts/rarity-report.ts [questionId…]` | Print estimated rarity distributions for tuning |
+| `npx tsx scripts/synergy-report.ts [days]` | Simulate Team Synergy tiers for different player styles (override with `ALLOWANCE=… QUAD=… TIERS=…`) |
 
 ### Developer mode
 
@@ -33,7 +34,7 @@ Moving between screens never resets progress: everything is saved after each act
 
 ## How it plays
 
-1. Five prompts per day in a fixed shape: **2 easy (≥ 50 valid answers) → 2 medium (15–49) → 1 hard (5–14)**.
+1. Six prompts per day in a fixed shape: **2 easy (≥ 50 valid answers) → 3 medium (15–49) → 1 hard (5–14)**. Your six answers form a **party**, shown in a six-slot bar while you play.
 2. Each prompt has a **20-second timer** (`QUESTION_TIME_LIMIT_SECONDS`). It starts once the prompt has finished typing and the input is enabled, and stops on a valid submission. Misspelled names and repeats don't cost a turn and don't reset it. Running out scores 0 ("TIME'S UP!") and moves on. The last 5 seconds turn red, with a tick if sound is on. There's **no speed bonus**: rarity is the only thing scored.
 3. The timer is wall-clock based (a saved start timestamp). Reloading, switching tabs, going Home or locking the phone don't pause it. If it ran out while you were away, the prompt resolves as a timeout when you come back, with a notice.
 4. Type a Pokémon (autocomplete, ▲▼ + Enter, or tap). A real Pokémon that doesn't fit the prompt costs the turn (0 pts, "It broke free!").
@@ -48,11 +49,32 @@ Moving between screens never resets progress: everything is saved after each act
 
    Under reduced motion (OS setting or in-game), flashes, shakes, bursts and wipes are removed. The coloured frame, label and points still make Ultra and Master stand out.
 
-6. Results: total score, each answer + ball (⧗ for timeouts), best & rarest answer, streak, Trainer Class, progress, reset info, and a spoiler-free **Share** (`🟣🔵⌛⬛🟡 175 pts`).
+6. After prompt six, **Team Synergy** rates the party's defensive typing and multiplies the rarity score (see below).
+7. Results: final score with its breakdown (`RARITY 310 × TEAM 1.15 = 357`), each answer + ball (⧗ for timeouts), the **party analysis** (six sprites with types, synergy tier, an 18-type defense grid, biggest threats and walls), best & rarest answer, streak, Trainer Class, reset info, and a spoiler-free **Share** (`🟣🔵⌛⬛🟡🔴  357 pts` / `🛡️ Team Excellent ×1.15`).
+
+### Team Synergy
+
+`src/lib/synergy.ts` is pure and reads every number from `TEAM_SYNERGY` in `src/config/game.ts`, so it can be rebalanced without touching data or UI.
+
+- **Type chart:** the modern chart from PokéAPI (`/type/{name}` damage relations), stored in `src/data/generated/typechart.json` and sanity-checked at build time (Ground→Flying 0×, Dragon→Fairy 0×, and so on). Dual types multiply, so 4× weaknesses and immunities are handled. Abilities, held items, moves and battle-only forms are ignored. A regional-form answer is scored with that form's typing (Hisuian Typhlosion = Fire/Ghost).
+- **Exposure:** for each of the 18 attacking types, `max(0, weak − (resist + immune) − allowance)`, with a 4× weakness counting `quadWeaknessWeight` times. These are summed over all types. This measures *overlapping* weaknesses net of teammates who cover them, not a count of unique weak types.
+- **Tiers** (current values):
+
+| Tier | Exposure | Multiplier |
+| --- | --- | --- |
+| Excellent | 0–1 | 1.15× |
+| Good | 2–3 | 1.10× |
+| Fair | 4–6 | 1.05× |
+| Poor | 7+ | 1.00× |
+
+- **Tuning:** the suggested starting point (allowance 2, tiers 0 / 1–2 / 3–4 / 5+) was simulated over a year of real daily challenges (`scripts/synergy-report.ts`). It rated about half of all thoughtless parties Excellent and almost none Poor, so planning a team wouldn't matter. With allowance 1, 4× weaknesses counting double, and the tiers above, players who ignore typing land at ≈ 16% Excellent · 37% Good · 31% Fair · 17% Poor. The best achievable party is Excellent on ≈ 99% of days and never worse than Good.
+- **Eligibility:** the multiplier applies only when all six answers are valid, distinct Pokémon. Any miss or timeout keeps the plain rarity score. Final = `round(base × multiplier)`, so the bonus is at most +15% and rarity stays the main source of points.
+- **Fair question sets:** a Pokémon type can be the subject of at most one prompt per day (`MAX_PROMPTS_PER_TYPE`), so a day never stacks Ground + Ground/Rock + Ground Gen IV. A test runs a beam search (`src/lib/teamSearch.ts`) over each day's answer sets and confirms the best party is always Good or better.
+- **Saved results:** history stores the final `score` plus `baseScore`, `multiplier` and `synergyTier`. Older five-question saves are left untouched. They stay locked, keep their original score, count toward streaks, and simply show "no Team Synergy bonus" with a five-slot party. An unfinished pre-update save for the current day is discarded, because its prompts no longer exist (the seed moved to `v3`).
 
 ### Daily reset
 
-The reset is global at **00:00 UTC** (`RESET_UTC_OFFSET_HOURS` / `RESET_TIMEZONE_LABEL`). Every date key, challenge number, challenge id, countdown and streak calculation uses the same UTC date, so a player in Tokyo and one in Los Angeles always get the same challenge at the same instant. The UI labels dates "UTC" and shows the reset in the player's local time. `tests/reset.test.ts` covers five timezones (including UTC+13:45), the Dec 31 → Jan 1 rollover, Feb 29, and streaks across both. Completing all five prompts, timeouts included, completes the day regardless of score.
+The reset is global at **00:00 UTC** (`RESET_UTC_OFFSET_HOURS` / `RESET_TIMEZONE_LABEL`). Every date key, challenge number, challenge id, countdown and streak calculation uses the same UTC date, so a player in Tokyo and one in Los Angeles always get the same challenge at the same instant. The UI labels dates "UTC" and shows the reset in the player's local time. `tests/reset.test.ts` covers five timezones (including UTC+13:45), the Dec 31 → Jan 1 rollover, Feb 29, and streaks across both. Completing all six prompts, timeouts included, completes the day regardless of score.
 
 ## Answer rules
 
@@ -74,7 +96,8 @@ src/config/game.ts         ALL tunables: difficulty bands + daily layout, per-di
                            category weights, timer, tiers/points, popularity model,
                            trainer classes, reset time
 src/data/generated/        Committed, versioned data used at runtime
-  pokedex.json             1,025 species (id, name, gen, types, flags, evolution stage)
+  pokedex.json             1,025 species (id, name, gen, types, flags, evolution stage) + regional form typings
+  typechart.json           18×18 type effectiveness (PokéAPI, current generation)
   questions.json           ~750 prompts, each with a verified answer set + relevance hints
 src/lib/                   ── mode-agnostic engine (reused by Survival later) ──
   questionDeck.ts          Difficulty bands, weighted categories, no-repeat dealing,
@@ -82,6 +105,8 @@ src/lib/                   ── mode-agnostic engine (reused by Survival later
   validation.ts            Pure answer validation
   rarity.ts                RarityProvider interface, prompt-specific estimate, observed provider
   timer.ts                 Wall-clock timer math
+  synergy.ts               Team defensive analysis + multiplier tiers (config-driven)
+  teamSearch.ts            Best achievable party for a prompt set (tests/tooling)
   pokedex.ts               Name normalization, lookup, autocomplete search
                            ── daily mode ──
   questions.ts             Daily challenge generator (built on QuestionDeck)
@@ -94,8 +119,9 @@ src/lib/                   ── mode-agnostic engine (reused by Survival later
   sprites.ts / audio.ts / share.ts
 src/app/page.tsx           Home        src/app/daily/page.tsx   Daily challenge
 src/components/            Shell (header/footer/settings/help/keyboard), Home, DailyGame,
-                           QuestionTimer, AnswerInput, Reveal, Results, TrainerCard…
-tests/                     Vitest: validation, rarity, daily, timer, reset, streak
+                           QuestionTimer, AnswerInput, Reveal, Results, PartyBar,
+                           PartyAnalysis, TypeBadge, TrainerCard…
+tests/                     Vitest: validation, rarity, daily, timer, reset, streak, synergy
 ```
 
 ### Data pipeline
@@ -107,9 +133,9 @@ tests/                     Vitest: validation, rarity, daily, timer, reset, stre
 
 ### Daily generator
 
-A pure function of the date, the question pool, the config, and `CHALLENGE_SEED_VERSION` (now `v2`):
+A pure function of the date, the question pool, the config, and `CHALLENGE_SEED_VERSION` (now `v3`):
 
-1. Every day follows `DAILY_LAYOUT` = easy, easy, medium, medium, hard.
+1. Every day follows `DAILY_LAYOUT` = easy, easy, medium, medium, medium, hard. No type is the subject of more than one prompt.
 2. For each slot, a seeded RNG picks a category by its **per-difficulty weight** (`CATEGORY_CONFIG[cat].weights`), ≤ 2 per category per day. It only considers categories that still have a prompt not used in the last 14 days, so tiny pools sit out instead of repeating.
 3. The `QuestionDeck` deals from seeded shuffled cycles per (difficulty, category).
 

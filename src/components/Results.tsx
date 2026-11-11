@@ -3,13 +3,14 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { getQuestion, type DailyChallenge } from "@/lib/questions";
 import type { DailySession } from "@/lib/session";
-import { bestAnswer, MAX_SCORE_PER_QUESTION, outcomeOf, rarestAnswer, totalScore } from "@/lib/session";
+import { bestAnswer, MAX_SCORE_PER_QUESTION, outcomeOf, rarestAnswer, scoreSummary } from "@/lib/session";
 import type { PlayerProgress, TrainerClassInfo } from "@/lib/progress/streak";
 import { getSpecies } from "@/lib/pokedex";
 import { defaultRarityProvider, getTier } from "@/lib/rarity";
 import { buildShareText } from "@/lib/share";
 import { prefersReducedMotion } from "@/lib/client";
 import { sfx } from "@/lib/audio";
+import { PartyAnalysis } from "@/components/PartyAnalysis";
 import { PixelBall } from "@/components/PixelBall";
 import { ResetInfo } from "@/components/ResetInfo";
 import { formatShare } from "@/components/Reveal";
@@ -50,12 +51,14 @@ export function Results({
   isDev: boolean;
   homeHref: string;
 }) {
-  const total = totalScore(session);
+  const summary = scoreSummary(session);
+  const total = summary.final;
   const shown = useCountUp(total);
   const [copied, setCopied] = useState<"idle" | "ok" | "fail">("idle");
   const best = bestAnswer(session);
   const rarest = rarestAnswer(session);
-  const max = MAX_SCORE_PER_QUESTION * challenge.questions.length;
+  // Legacy five-question days keep their own maximum.
+  const maxBase = MAX_SCORE_PER_QUESTION * Math.max(session.answers.length, 1);
   const pastScores = Object.values(progress.history)
     .filter((h) => h.date !== session.date)
     .map((h) => h.score);
@@ -97,10 +100,17 @@ export function Results({
         </div>
       </div>
 
-      <div className="scoreboard" aria-label={`Total score ${total} of ${max}`}>
-        <div className="label">TOTAL SCORE</div>
+      <div className="scoreboard" aria-label={`Final score ${total}`}>
+        <div className="label">FINAL SCORE</div>
         <div className="scoreboard__value num">{String(shown).padStart(3, "0")}</div>
-        <div className="label">OF {max}</div>
+        <div className="scoreboard__calc label">
+          RARITY <span className="num">{summary.base}</span>
+          <span className="scoreboard__op"> × </span>
+          TEAM <span className="num">{summary.multiplier.toFixed(2)}</span>
+          <span className="scoreboard__op"> = </span>
+          <span className="num">{summary.final}</span>
+        </div>
+        <div className="label scoreboard__max">RARITY MAX {maxBase}</div>
         {personalBest && <div className="chip chip--gold blink-slow">NEW PERSONAL BEST!</div>}
       </div>
 
@@ -135,6 +145,8 @@ export function Results({
           <div className="results__hl">{rarest ? `${nameOf(rarest.speciesId)} · ${formatShare(rarest.share)}` : "—"}</div>
         </div>
       </div>
+
+      <PartyAnalysis summary={summary} />
 
       <TrainerCard info={trainer} best={progress.bestStreak} />
 

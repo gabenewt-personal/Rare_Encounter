@@ -399,6 +399,45 @@ async function main() {
     }
   }
 
+  // 5b. Type effectiveness (current generation) for Team Synergy.
+  const typeInfo = await mapLimit(
+    TYPES,
+    (t) =>
+      cached(`type/${t}`, (x: any) => ({
+        name: x.name as PokemonType,
+        double: x.damage_relations.double_damage_to.map((d: any) => d.name),
+        half: x.damage_relations.half_damage_to.map((d: any) => d.name),
+        none: x.damage_relations.no_damage_to.map((d: any) => d.name),
+      })),
+    "types",
+  );
+  /** chart[attacker][defender] = multiplier; only non-1× entries are stored. */
+  const chart: Record<string, Record<string, number>> = {};
+  for (const t of typeInfo) {
+    chart[t.name] = {};
+    for (const d of t.double) if (TYPES.includes(d)) chart[t.name][d] = 2;
+    for (const d of t.half) if (TYPES.includes(d)) chart[t.name][d] = 0.5;
+    for (const d of t.none) if (TYPES.includes(d)) chart[t.name][d] = 0;
+  }
+  // Sanity checks against well-known matchups.
+  const expectMult = (a: string, d: string, m: number) => {
+    if ((chart[a]?.[d] ?? 1) !== m) throw new Error(`type chart: ${a}→${d} expected ${m}, got ${chart[a]?.[d] ?? 1}`);
+  };
+  expectMult("ground", "flying", 0);
+  expectMult("ghost", "normal", 0);
+  expectMult("dragon", "fairy", 0);
+  expectMult("water", "fire", 2);
+  expectMult("fire", "water", 0.5);
+  expectMult("steel", "fairy", 2);
+  expectMult("normal", "normal", 1);
+
+  // Regional form typings (answers that only qualify via a regional form are
+  // scored with that form's types in Team Synergy).
+  const regionalForms: Record<number, { species: number; types: PokemonType[] }> = {};
+  for (const [speciesId, fs] of formsBySpecies) {
+    for (const f of fs) if (f.regional) regionalForms[f.form.id] = { species: speciesId, types: f.form.types };
+  }
+
   // 6. Filter by configured answer-count bounds + verify every answer set.
   const speciesIds = new Set(pokedex.map((p) => p.id));
   const questions: Question[] = [];
@@ -423,7 +462,11 @@ async function main() {
   const datasetVersion = `pokeapi-${now.slice(0, 10)}`;
   await writeFile(
     path.join(OUT_DIR, "pokedex.json"),
-    JSON.stringify({ datasetVersion, generatedAt: now, source: API, species: pokedex }),
+    JSON.stringify({ datasetVersion, generatedAt: now, source: API, species: pokedex, regionalForms }),
+  );
+  await writeFile(
+    path.join(OUT_DIR, "typechart.json"),
+    JSON.stringify({ datasetVersion, generatedAt: now, source: `${API}/type`, types: TYPES, chart }),
   );
   await writeFile(
     path.join(OUT_DIR, "questions.json"),

@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { QUESTIONS_PER_DAY } from "@/config/game";
 import { activeStreak, emptyProgress, recordCompletion, trainerClassFor, type DayResult } from "@/lib/progress/streak";
 import { MemoryStore } from "@/lib/progress/store";
 import { applyAnswer, loadOrCreateSession, newSession, persistSession, totalScore, usedSpeciesIds } from "@/lib/session";
@@ -93,10 +94,10 @@ describe("daily session persistence", () => {
     return s;
   }
 
-  it("completing all five prompts completes the day and starts a streak", () => {
+  it("completing all six prompts completes the day and starts a streak", () => {
     const store = new MemoryStore();
     const s = playAll(store);
-    expect(s.answers).toHaveLength(5);
+    expect(s.answers).toHaveLength(QUESTIONS_PER_DAY);
     expect(totalScore(s)).toBeGreaterThan(0);
     expect(store.loadProgress().currentStreak).toBe(1);
   });
@@ -117,7 +118,7 @@ describe("daily session persistence", () => {
   it("completion counts even with zero points", () => {
     const store = new MemoryStore();
     let s = newSession(challenge);
-    for (let i = 0; i < 5; i++) {
+    for (let i = 0; i < QUESTIONS_PER_DAY; i++) {
       const used = usedSpeciesIds(s);
       const wrong = [25, 1, 4, 7, 133, 150, 151, 94].map((n) => getSpecies(n)!).find(
         (sp) => !challenge.questions[i].answers.includes(sp.id) && !used.includes(sp.id),

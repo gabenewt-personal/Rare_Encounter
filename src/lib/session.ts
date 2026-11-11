@@ -3,12 +3,15 @@
  * caller persists the returned objects through a GameStore.
  */
 import type { BallTier } from "@/config/game";
-import { TIERS } from "@/config/game";
+import { TEAM_SYNERGY, TIERS } from "@/config/game";
 import type { DailyChallenge } from "@/lib/questions";
 import type { GameStore } from "@/lib/progress/store";
 import { recordCompletion, type PlayerProgress } from "@/lib/progress/streak";
 import { isExpired, QUESTION_TIME_LIMIT_MS, remainingMs } from "@/lib/timer";
 import type { ValidationResult } from "@/lib/validation";
+import type { PokemonType } from "@/data/types";
+import { answerTypes } from "@/lib/pokedex";
+import { analyzeTeam, applyMultiplier, isFullValidTeam, type TeamAnalysis } from "@/lib/synergy";
 
 export type AnswerOutcome = "correct" | "incorrect" | "timeout";
 
@@ -123,8 +126,46 @@ export function applyAnswer(
   return { ...session, answers, completed: answers.length >= challenge.questions.length };
 }
 
+/** Sum of rarity points (the "base score", before Team Synergy). */
 export function totalScore(session: DailySession): number {
   return session.answers.reduce((s, a) => s + a.points, 0);
+}
+
+export interface TeamMember {
+  speciesId: number;
+  formId?: number;
+  types: PokemonType[];
+}
+
+export interface ScoreSummary {
+  base: number;
+  final: number;
+  /** The party (correct answers only), in prompt order. */
+  team: TeamMember[];
+  /** Present only for a full party of valid, distinct Pokémon. */
+  synergy: TeamAnalysis | null;
+  multiplier: number;
+}
+
+/**
+ * Final score = base rarity score × Team Synergy multiplier. The multiplier
+ * applies only when all TEAM_SIZE answers are valid, distinct Pokémon; any
+ * miss, timeout or legacy five-question save keeps the base score.
+ */
+export function scoreSummary(session: DailySession): ScoreSummary {
+  const base = totalScore(session);
+  const team = session.answers
+    .filter((a) => a.correct && a.speciesId != null)
+    .map((a) => ({ speciesId: a.speciesId!, formId: a.formId, types: answerTypes(a.speciesId!, a.formId) }));
+  const eligible = session.completed && session.answers.every((a) => a.correct) && isFullValidTeam(session.answers.map((a) => a.speciesId));
+  const synergy = eligible ? analyzeTeam(team.map((m) => m.types)) : null;
+  const multiplier = synergy?.tier.multiplier ?? 1;
+  return { base, final: applyMultiplier(base, multiplier), team, synergy, multiplier };
+}
+
+/** Final score for display (home card, share text, history). */
+export function finalScore(session: DailySession): number {
+  return scoreSummary(session).final;
 }
 
 /** The correct answer with the lowest share. */
@@ -138,6 +179,7 @@ export function bestAnswer(session: DailySession): AnswerRecord | null {
 }
 
 export const MAX_SCORE_PER_QUESTION = Math.max(...TIERS.map((t) => t.points));
+export const MAX_SYNERGY_MULTIPLIER = Math.max(...TEAM_SYNERGY.tiers.map((t) => t.multiplier));
 
 /**
  * Persists the session and, when it just became complete, records the day in
@@ -147,9 +189,12 @@ export function persistSession(store: GameStore, session: DailySession): PlayerP
   store.saveSession(session);
   let progress = store.loadProgress();
   if (session.completed && !progress.history[session.date]) {
+    const summary = scoreSummary(session);
     progress = recordCompletion(progress, {
       date: session.date,
-      score: totalScore(session),
+      score: summary.final,
+      baseScore: summary.base,
+      ...(summary.synergy ? { synergyTier: summary.synergy.tier.id, multiplier: summary.multiplier } : {}),
       tiers: session.answers.map((a) => a.tier),
       completedAt: new Date().toISOString(),
     });

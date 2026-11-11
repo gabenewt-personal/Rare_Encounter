@@ -49,7 +49,7 @@ describe("year boundaries", () => {
     const a = generateDailyChallenge("2026-12-31");
     const b = generateDailyChallenge("2027-01-01");
     expect(a.id).not.toBe(b.id);
-    expect(b.questions).toHaveLength(5);
+    expect(b.questions).toHaveLength(6);
   });
 
   it("continues a streak across New Year and across Feb 29", () => {

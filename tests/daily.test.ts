@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { CATEGORY_CONFIG, DAILY_LAYOUT, MAX_PER_CATEGORY, NO_REPEAT_DAYS, QUESTIONS_PER_DAY } from "@/config/game";
-import { difficultyOf } from "@/lib/questionDeck";
+import { difficultyOf, typeTags } from "@/lib/questionDeck";
 import { getSpecies } from "@/lib/pokedex";
 import { addDays, challengeNumber, dateKeyFor, daysBetween, isDateKey, msUntilReset } from "@/lib/dates";
 import { QUESTION_POOL, generateDailyChallenge } from "@/lib/questions";
@@ -45,23 +45,31 @@ describe("generateDailyChallenge", () => {
     expect(a).not.toEqual(b);
   });
 
-  it("follows the daily layout: 2 easy (≥50), 2 medium (15–49), 1 hard (5–14)", () => {
-    expect(DAILY_LAYOUT).toEqual(["easy", "easy", "medium", "medium", "hard"]);
+  it("follows the daily layout: 2 easy (≥50), 3 medium (15–49), 1 hard (5–14)", () => {
+    expect(DAILY_LAYOUT).toEqual(["easy", "easy", "medium", "medium", "medium", "hard"]);
+    expect(QUESTIONS_PER_DAY).toBe(6);
     for (const c of challenges) {
-      expect(c.questions).toHaveLength(QUESTIONS_PER_DAY);
-      expect(new Set(c.questions.map((q) => q.id)).size).toBe(QUESTIONS_PER_DAY);
+      expect(c.questions).toHaveLength(6);
+      expect(new Set(c.questions.map((q) => q.id)).size).toBe(6);
       const n = c.questions.map((q) => q.answers.length);
       expect(n[0]).toBeGreaterThanOrEqual(50);
       expect(n[1]).toBeGreaterThanOrEqual(50);
-      for (const k of [2, 3]) {
+      for (const k of [2, 3, 4]) {
         expect(n[k]).toBeGreaterThanOrEqual(15);
         expect(n[k]).toBeLessThanOrEqual(49);
       }
-      expect(n[4]).toBeGreaterThanOrEqual(5);
-      expect(n[4]).toBeLessThanOrEqual(14);
+      expect(n[5]).toBeGreaterThanOrEqual(5);
+      expect(n[5]).toBeLessThanOrEqual(14);
       const perCat = new Map<string, number>();
       for (const q of c.questions) perCat.set(q.category, (perCat.get(q.category) ?? 0) + 1);
       expect(Math.max(...perCat.values())).toBeLessThanOrEqual(MAX_PER_CATEGORY);
+    }
+  });
+
+  it("never makes one type the subject of two prompts on the same day (team diversity)", () => {
+    for (const c of challenges) {
+      const tags = c.questions.flatMap((q) => typeTags(q));
+      expect(new Set(tags).size, `${c.date}: ${tags.join(",")}`).toBe(tags.length);
     }
   });
 

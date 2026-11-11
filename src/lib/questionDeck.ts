@@ -33,6 +33,18 @@ export function difficultyOf(q: Question): Difficulty | null {
   return null;
 }
 
+/**
+ * Pokémon types a prompt forces onto its answers ("Ground-type" → ground,
+ * "Water/Ground" → water + ground). Used to keep a day's party diverse.
+ */
+export function typeTags(q: Question): string[] {
+  const [kind, rest = ""] = q.id.split(":");
+  if (kind === "type") return [rest];
+  if (kind === "typegen") return [rest.split("-")[0]];
+  if (kind === "dual") return rest.split("-");
+  return [];
+}
+
 /** Survival Mode ramp (not used yet): easy → medium → hard as rounds go on. */
 export function difficultyForRound(round: number): Difficulty {
   return round < 4 ? "easy" : round < 10 ? "medium" : "hard";

@@ -6,7 +6,7 @@ import { appHref, readClientContext } from "@/lib/client";
 import { dateKeyFor, formatDateLabel } from "@/lib/dates";
 import { generateDailyChallenge } from "@/lib/questions";
 import { activeStreak, trainerClassFor } from "@/lib/progress/streak";
-import { loadOrCreateSession, persistSession, totalScore } from "@/lib/session";
+import { finalScore, loadOrCreateSession, persistSession } from "@/lib/session";
 import { sfx } from "@/lib/audio";
 import { DevPanel } from "@/components/DevPanel";
 import { PixelBall } from "@/components/PixelBall";
@@ -69,14 +69,14 @@ function HomeBody({ ctx }: { ctx: ReturnType<typeof readClientContext> }) {
         </div>
         <div className="daily-card__status">
           <div className="daily-card__balls" aria-hidden>
-            {challenge.questions.map((_, i) => {
+            {Array.from({ length: Math.max(challenge.questions.length, session.answers.length) }, (_, i) => {
               const a = session.answers[i];
-              return <PixelBall key={i} size={22} tier={a ? (a.tier ?? "miss") : "empty"} />;
+              return <PixelBall key={i} size={20} tier={a ? (a.tier ?? "miss") : "empty"} />;
             })}
           </div>
           <span className="label">
             {done
-              ? `COMPLETE · ${totalScore(session)} PTS`
+              ? `COMPLETE · ${finalScore(session)} PTS`
               : started
                 ? `IN PROGRESS · ${session.answers.length}/${QUESTIONS_PER_DAY}`
                 : `${QUESTIONS_PER_DAY} PROMPTS · 20s EACH`}

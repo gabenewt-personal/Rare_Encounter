@@ -4,8 +4,9 @@
  * No admin needs to author days. The whole sequence of challenges is a pure
  * function of (question pool, config, CHALLENGE_SEED_VERSION):
  *
- *  1. Every day follows DAILY_LAYOUT: 2 easy (≥50 answers), 2 medium (15–49),
- *     1 hard (5–14), in that order.
+ *  1. Every day follows DAILY_LAYOUT: 2 easy (≥50 answers), 3 medium (15–49),
+ *     1 hard (5–14), in that order — six answers make a six-Pokémon party.
+ *     A type can be the subject of only one prompt per day (team diversity).
  *  2. For each slot a seeded RNG (version + day index) picks a category by its
  *     per-difficulty weight (≤ MAX_PER_CATEGORY per day).
  *  3. The QuestionDeck deals the next question for that (difficulty,
@@ -22,6 +23,7 @@ import {
   DAILY_LAYOUT,
   DIFFICULTY_BANDS,
   MAX_PER_CATEGORY,
+  MAX_PROMPTS_PER_TYPE,
   NO_REPEAT_DAYS,
   type Difficulty,
   type QuestionCategory,
@@ -29,7 +31,7 @@ import {
 import type { Question, QuestionPoolFile } from "@/data/types";
 import { challengeNumber, daysBetween } from "@/lib/dates";
 import { createRng, hashString } from "@/lib/random";
-import { QuestionDeck, difficultyOf as bandOf } from "@/lib/questionDeck";
+import { QuestionDeck, difficultyOf as bandOf, typeTags } from "@/lib/questionDeck";
 
 export const QUESTION_POOL: readonly Question[] = (questionsFile as QuestionPoolFile).questions;
 
@@ -81,7 +83,10 @@ class ChallengeSimulator {
         const last = this.lastUsedDay.get(x.id);
         return last === undefined || day - last >= NO_REPEAT_DAYS;
       };
-      const notToday = (x: Question) => !today.has(x.id);
+      const typeUse = new Map<string, number>();
+      // Not already today, and doesn't stack a type another prompt already forces.
+      const notToday = (x: Question) =>
+        !today.has(x.id) && typeTags(x).every((t) => (typeUse.get(t) ?? 0) < MAX_PROMPTS_PER_TYPE);
       const picked = this.layout.map((d) => {
         const underCap = (c: QuestionCategory) => (perCat.get(c) ?? 0) < MAX_PER_CATEGORY;
         // Prefer categories that still have a fresh prompt for this slot, so a
@@ -92,6 +97,7 @@ class ChallengeSimulator {
         perCat.set(cat, (perCat.get(cat) ?? 0) + 1);
         const q = this.deck.deal(d, cat, fresh, notToday, (x) => this.lastUsedDay.get(x.id) ?? -Infinity);
         today.add(q.id);
+        for (const t of typeTags(q)) typeUse.set(t, (typeUse.get(t) ?? 0) + 1);
         return q;
       });
       for (const q of picked) this.lastUsedDay.set(q.id, day);
