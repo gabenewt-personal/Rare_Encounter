@@ -43,6 +43,17 @@ export function DevPanel({
           <div className="devpanel__row">
             <button className="btn btn--small" onClick={() => go(dateKeyFor())}>TODAY</button>
             <button className="btn btn--small" onClick={onReset}>RESET DEV SAVE</button>
+            <button
+              className="btn btn--small"
+              onClick={() => {
+                const url = new URL(window.location.href);
+                if (url.searchParams.get("wildcards") === "preview") url.searchParams.delete("wildcards");
+                else url.searchParams.set("wildcards", "preview");
+                window.location.href = url.toString();
+              }}
+            >
+              {typeof window !== "undefined" && new URLSearchParams(window.location.search).get("wildcards") === "preview" ? "HIDE PENDING WILDCARDS" : "PREVIEW PENDING WILDCARDS"}
+            </button>
             <button className="btn btn--small" onClick={() => window.location.assign(window.location.origin + "/")}>EXIT DEV</button>
           </div>
           {question && (

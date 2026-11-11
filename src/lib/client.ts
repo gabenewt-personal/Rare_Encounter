@@ -7,6 +7,8 @@ import { LocalStorageStore, type GameStore } from "@/lib/progress/store";
 
 export interface ClientContext {
   isDev: boolean;
+  /** Dev only (?wildcards=preview): pending curated wildcards rotate too. */
+  previewWildcards: boolean;
   /** Challenge date in effect (UTC date key). */
   date: string;
   store: GameStore;
@@ -17,12 +19,14 @@ export function readClientContext(): ClientContext {
   const isDev = params.get("dev") === "1";
   const requested = params.get("date");
   const date = isDev && isDateKey(requested) ? requested : dateKeyFor();
-  return { isDev, date, store: new LocalStorageStore(isDev ? "dev" : "live") };
+  const previewWildcards = isDev && params.get("wildcards") === "preview";
+  return { isDev, date, previewWildcards, store: new LocalStorageStore(isDev ? "dev" : "live") };
 }
 
 /** Builds an in-app href that keeps dev-mode parameters. */
-export function appHref(path: string, ctx: Pick<ClientContext, "isDev" | "date">): string {
-  return ctx.isDev ? `${path}?dev=1&date=${ctx.date}` : path;
+export function appHref(path: string, ctx: Pick<ClientContext, "isDev" | "date"> & { previewWildcards?: boolean }): string {
+  if (!ctx.isDev) return path;
+  return `${path}?dev=1&date=${ctx.date}${ctx.previewWildcards ? "&wildcards=preview" : ""}`;
 }
 
 /* ---------------- Settings ---------------- */

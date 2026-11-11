@@ -94,6 +94,10 @@ export function HelpModal({ open, onClose }: { open: boolean; onClose: () => voi
           <li><strong>Abilities</strong> include hidden abilities.</li>
           <li><strong>Evolution</strong> prompts mean the Pokémon that evolves (Clefairy uses a Moon Stone).</li>
           <li><strong>Name</strong> prompts use the official English name, ignoring accents (Flabébé starts with F).</li>
+          <li><strong>Base stats, height and weight</strong> use each species&apos; standard form. <strong>Matchups</strong> go by typing alone (abilities like Levitate don&apos;t count).</li>
+          <li><strong>Locations</strong> use recorded wild encounters from the main-series games (mostly Gen I–VII).</li>
+          <li><strong>Wildcards</strong> (&quot;based on a cat&quot;) use a hand-reviewed list. Visual ones are judged from official artwork, not the Pokédex color.</li>
+          <li>The small print under each prompt explains its exact rules.</li>
         </ul>
 
         <h3 className="modal__sub">TRAINER CLASS</h3>

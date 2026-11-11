@@ -42,3 +42,6 @@ next-env.d.ts
 
 # PokéAPI response cache (rebuild with npm run data)
 /.cache/
+
+# Dev reports
+/reports/

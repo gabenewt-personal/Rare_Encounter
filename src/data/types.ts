@@ -42,6 +42,17 @@ export interface Question {
    * pokemon id of that form (used to show the matching sprite).
    */
   forms?: Record<number, number>;
+  /**
+   * Near-duplicate guard: two prompts with the same family never share a day
+   * (e.g. "stat:attack" for every base-Attack threshold). Defaults to the category.
+   */
+  family?: string;
+  /** One-line scope note shown under the prompt (game versions, form rules…). */
+  description?: string;
+  /** Attacking types that ≥75% of this prompt's answers are weak to (Team Synergy guard). */
+  forcedWeak?: PokemonType[];
+  /** Overrides the category's conceptFactor for this prompt (e.g. Pokédex-number patterns). */
+  conceptFactor?: number;
   /** Answers that are the "textbook" fit for this prompt (see POPULARITY_MODEL). */
   strong?: number[];
   /** Technically-correct deep cuts for this prompt. */

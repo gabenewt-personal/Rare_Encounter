@@ -34,7 +34,7 @@ type Phase = "question" | "reveal" | "results";
 
 function initDaily() {
   const ctx = readClientContext();
-  const challenge = generateDailyChallenge(ctx.date);
+  const challenge = generateDailyChallenge(ctx.date, { includePendingWildcards: ctx.previewWildcards });
   let session = loadOrCreateSession(ctx.store, challenge);
   let notice: string | null = null;
   // A timer that ran out while the page was closed/backgrounded resolves now.
@@ -218,6 +218,7 @@ export default function DailyGame() {
               onDone={onPromptShown}
             />
           </div>
+          {question.description && <p className="question__scope">{question.description}</p>}
           <AnswerInput usedIds={usedIds} onSubmit={submit} disabled={!running} />
           <p className={`hint ${message ? "hint--error" : ""}`} role="status" aria-live="polite">
             {message ?? (running ? "Rarer correct answers earn better Poké Balls." : "Get ready…")}

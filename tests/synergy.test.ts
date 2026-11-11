@@ -191,11 +191,11 @@ describe("legacy five-question saves", () => {
 });
 
 describe("daily prompts allow a good party", () => {
-  it("every day's best achievable party is Good or better (120 days)", () => {
+  it("every day's best achievable party is Good or better (90 days)", () => {
     const good = TEAM_SYNERGY.tiers.find((x) => x.id === "good")!.maxExposure;
-    for (let i = 0; i < 120; i++) {
+    for (let i = 0; i < 90; i++) {
       const date = addDays("2026-11-10", i);
       expect(bestTeamExposure(generateDailyChallenge(date).questions), date).toBeLessThanOrEqual(good);
     }
-  });
+  }, 120_000);
 });

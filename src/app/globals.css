@@ -757,3 +757,7 @@ html[data-kb="open"] .party { display: none; }
 /* Stamp just the label so the row never grows past the dialog. */
 .reveal__tier { animation: none; }
 .reveal__tier span:nth-child(2) { display: inline-block; animation: stamp-sm 0.25s steps(3); transform-origin: left center; }
+
+/* Scope note under a prompt (game versions, form rules, curated lists). */
+.question__scope { margin: -4px 6px 0; font-size: 14px; line-height: 1.3; color: #6f6a55; }
+html[data-kb="open"] .question__scope { display: none; }

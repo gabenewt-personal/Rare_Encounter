@@ -10,7 +10,9 @@
     "data": "tsx scripts/build-dataset.ts",
     "test": "vitest run",
     "test:watch": "vitest",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "report": "tsx scripts/question-report.ts",
+    "wildcards": "tsx scripts/wildcard-review.ts"
   },
   "dependencies": {
     "next": "16.4.5",

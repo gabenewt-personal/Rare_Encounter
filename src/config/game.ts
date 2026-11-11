@@ -10,7 +10,7 @@
 export const GAME_TITLE = "Rare Encounter";
 
 /** Bump only when you intentionally want a new sequence of daily challenges. */
-export const CHALLENGE_SEED_VERSION = "v3";
+export const CHALLENGE_SEED_VERSION = "v4";
 
 /** Day #1 of the game. Challenge numbers count up from here. */
 export const CHALLENGE_EPOCH = "2026-01-01";
@@ -22,14 +22,19 @@ export const CHALLENGE_EPOCH = "2026-01-01";
 export type Difficulty = "easy" | "medium" | "hard";
 
 /**
- * Difficulty comes from how many valid answers a prompt has (inclusive bounds).
- * Prompts with fewer than `hard.minAnswers` answers are never generated.
+ * Difficulty bands compare an *effective* answer count: raw valid answers ×
+ * the category's `conceptFactor` (harder concepts — locations, Pokédex
+ * numbers — count as fewer). Guidelines: easy 60+, medium 25–59,
+ * challenging 12–24.
  */
 export const DIFFICULTY_BANDS: Record<Difficulty, { label: string; minAnswers: number; maxAnswers: number }> = {
-  easy: { label: "EASY", minAnswers: 50, maxAnswers: Infinity },
-  medium: { label: "MEDIUM", minAnswers: 15, maxAnswers: 49 },
-  hard: { label: "HARD", minAnswers: 5, maxAnswers: 14 },
+  easy: { label: "EASY", minAnswers: 60, maxAnswers: Infinity },
+  medium: { label: "MEDIUM", minAnswers: 25, maxAnswers: 59 },
+  hard: { label: "CHALLENGING", minAnswers: 0, maxAnswers: 24 },
 };
+
+/** Prompts with fewer RAW valid answers than this are never generated. */
+export const MIN_VALID_ANSWERS = 12;
 
 /**
  * The shape of every daily challenge, in play order. Six prompts = a full
@@ -81,35 +86,87 @@ export const RESET_TIMEZONE_LABEL = "UTC";
 /* ------------------------------------------------------------------ */
 
 export type QuestionCategory =
+  // core
   | "type"
   | "dualType"
-  | "generation"
   | "typeGeneration"
+  | "letter"
   | "move"
   | "ability"
+  // expanded trivia
+  | "generation"
   | "evolution"
-  | "letter";
+  | "stat"
+  | "location"
+  | "pokedex"
+  | "typeMatchup"
+  | "namePattern"
+  // curated
+  | "wildcard";
+
+/** Rotation groups: the four original kinds of knowledge, new trivia, curated wildcards. */
+export type QuestionGroup = "core" | "trivia" | "wildcard";
 
 export interface CategoryConfig {
+  group: QuestionGroup;
   /**
-   * Relative chance this category fills a slot of each difficulty.
-   * 0 (or omitted) keeps the category out of that difficulty.
+   * Relative chance this category fills a slot of each difficulty (within its
+   * group). 0 (or omitted) keeps the category out of that difficulty.
    */
   weights: Partial<Record<Difficulty, number>>;
   /** Questions with more valid answers are dropped (too broad for any rarity signal). */
   maxAnswers: number;
+  /**
+   * Conceptual difficulty: effective answer count = raw × factor. 1 = as hard
+   * as the count suggests; 0.6 = recalling locations is harder than recalling
+   * types, so a 40-answer location prompt plays like a 24-answer one.
+   */
+  conceptFactor: number;
 }
 
 export const CATEGORY_CONFIG: Record<QuestionCategory, CategoryConfig> = {
-  type: { weights: { easy: 1.0, medium: 0.6 }, maxAnswers: 400 },
-  generation: { weights: { easy: 0.5 }, maxAnswers: 400 },
-  letter: { weights: { easy: 1.0, medium: 0.8, hard: 0.4 }, maxAnswers: 400 },
-  move: { weights: { easy: 1.2, medium: 0.8 }, maxAnswers: 450 },
-  typeGeneration: { weights: { easy: 0.3, medium: 1.0, hard: 1.2 }, maxAnswers: 400 },
-  ability: { weights: { easy: 0.3, medium: 0.6, hard: 0.2 }, maxAnswers: 400 },
-  dualType: { weights: { medium: 0.5, hard: 1.2 }, maxAnswers: 400 },
-  evolution: { weights: { medium: 0.6, hard: 0.6 }, maxAnswers: 400 },
+  type: { group: "core", weights: { easy: 1.0, medium: 0.6 }, maxAnswers: 400, conceptFactor: 1 },
+  dualType: { group: "core", weights: { medium: 0.5, hard: 1.0 }, maxAnswers: 400, conceptFactor: 1 },
+  typeGeneration: { group: "core", weights: { easy: 0.3, medium: 1.0, hard: 1.0 }, maxAnswers: 400, conceptFactor: 1 },
+  letter: { group: "core", weights: { easy: 1.0, medium: 0.8, hard: 0.4 }, maxAnswers: 400, conceptFactor: 1 },
+  move: { group: "core", weights: { easy: 1.2, medium: 0.8, hard: 0.3 }, maxAnswers: 450, conceptFactor: 1 },
+  ability: { group: "core", weights: { easy: 0.3, medium: 0.5, hard: 0.4 }, maxAnswers: 400, conceptFactor: 1 },
+
+  generation: { group: "trivia", weights: { easy: 0.3 }, maxAnswers: 400, conceptFactor: 1 },
+  evolution: { group: "trivia", weights: { easy: 0.6, medium: 0.8, hard: 0.8 }, maxAnswers: 600, conceptFactor: 0.85 },
+  stat: { group: "trivia", weights: { easy: 0.8, medium: 1.0, hard: 0.8 }, maxAnswers: 500, conceptFactor: 0.75 },
+  location: { group: "trivia", weights: { easy: 0.5, medium: 0.8, hard: 0.6 }, maxAnswers: 400, conceptFactor: 0.6 },
+  pokedex: { group: "trivia", weights: { easy: 0.8, medium: 1.0, hard: 0.8 }, maxAnswers: 400, conceptFactor: 0.85 },
+  typeMatchup: { group: "trivia", weights: { easy: 0.8, medium: 1.0, hard: 0.6 }, maxAnswers: 600, conceptFactor: 0.9 },
+  namePattern: { group: "trivia", weights: { easy: 0.6, medium: 0.8, hard: 0.6 }, maxAnswers: 500, conceptFactor: 0.7 },
+
+  wildcard: { group: "wildcard", weights: { easy: 1, medium: 1, hard: 1 }, maxAnswers: 1025, conceptFactor: 0.9 },
 };
+
+/**
+ * Weekly rotation target: of 42 prompts (7 days × 6), roughly this many come
+ * from each group. Days are planned a week at a time; a slot falls back to
+ * another group when its own has nothing fresh (e.g. no approved wildcards).
+ */
+export const WEEKLY_GROUP_QUOTA: Record<QuestionGroup, number> = { core: 24, trivia: 12, wildcard: 6 };
+
+/** Variety guards for a single day. */
+export const DAILY_VARIETY = {
+  /** Prompts sharing a `family` (two base-Attack thresholds, two "can learn" prompts…) never share a day. */
+  maxPerFamily: 1,
+  /** Prompts that name a specific generation (Gen III, Fire-type Gen IV…) per day. */
+  maxGenerationPrompts: 1,
+  /**
+   * Team Synergy guard: an attacking type may be a near-certain weakness
+   * (≥ FORCED_WEAKNESS_SHARE of a prompt's answers weak to it) for at most
+   * this many of a day's prompts.
+   */
+  maxForcedWeaknessPerType: 2,
+};
+export const FORCED_WEAKNESS_SHARE = 0.75;
+
+/** Category rotation: weight multipliers for categories used on recent days. */
+export const ROTATION_DAMPING = { yesterday: 0.3, twoDaysAgo: 0.6 };
 
 /**
  * Familiarity filter for prompt *subjects*: only moves/abilities introduced

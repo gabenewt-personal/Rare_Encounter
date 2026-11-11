@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { CATEGORY_CONFIG, DAILY_LAYOUT, MAX_PER_CATEGORY, NO_REPEAT_DAYS, QUESTIONS_PER_DAY } from "@/config/game";
+import { CATEGORY_CONFIG, DAILY_LAYOUT, MAX_PER_CATEGORY, MIN_VALID_ANSWERS, NO_REPEAT_DAYS, QUESTIONS_PER_DAY } from "@/config/game";
 import { difficultyOf, typeTags } from "@/lib/questionDeck";
 import { getSpecies } from "@/lib/pokedex";
 import { addDays, challengeNumber, dateKeyFor, daysBetween, isDateKey, msUntilReset } from "@/lib/dates";
@@ -45,21 +45,16 @@ describe("generateDailyChallenge", () => {
     expect(a).not.toEqual(b);
   });
 
-  it("follows the daily layout: 2 easy (≥50), 3 medium (15–49), 1 hard (5–14)", () => {
+  it("follows the daily layout: 2 easy → 3 medium → 1 challenging (effective answer counts)", () => {
     expect(DAILY_LAYOUT).toEqual(["easy", "easy", "medium", "medium", "medium", "hard"]);
     expect(QUESTIONS_PER_DAY).toBe(6);
     for (const c of challenges) {
       expect(c.questions).toHaveLength(6);
       expect(new Set(c.questions.map((q) => q.id)).size).toBe(6);
-      const n = c.questions.map((q) => q.answers.length);
-      expect(n[0]).toBeGreaterThanOrEqual(50);
-      expect(n[1]).toBeGreaterThanOrEqual(50);
-      for (const k of [2, 3, 4]) {
-        expect(n[k]).toBeGreaterThanOrEqual(15);
-        expect(n[k]).toBeLessThanOrEqual(49);
-      }
-      expect(n[5]).toBeGreaterThanOrEqual(5);
-      expect(n[5]).toBeLessThanOrEqual(14);
+      c.questions.forEach((q, i) => {
+        expect(difficultyOf(q), `${c.date} ${q.id}`).toBe(DAILY_LAYOUT[i]);
+        expect(q.answers.length).toBeGreaterThanOrEqual(MIN_VALID_ANSWERS);
+      });
       const perCat = new Map<string, number>();
       for (const q of c.questions) perCat.set(q.category, (perCat.get(q.category) ?? 0) + 1);
       expect(Math.max(...perCat.values())).toBeLessThanOrEqual(MAX_PER_CATEGORY);
@@ -71,10 +66,6 @@ describe("generateDailyChallenge", () => {
       const tags = c.questions.flatMap((q) => typeTags(q));
       expect(new Set(tags).size, `${c.date}: ${tags.join(",")}`).toBe(tags.length);
     }
-  });
-
-  it("keeps the hard slot rare: at most one prompt under 15 answers per day", () => {
-    for (const c of challenges) expect(c.questions.filter((q) => q.answers.length < 15)).toHaveLength(1);
   });
 
   it(`keeps repeats ≥${NO_REPEAT_DAYS} days apart over two simulated years`, () => {
@@ -110,6 +101,8 @@ describe("generateDailyChallenge", () => {
 
   it("varies categories over time", () => {
     const cats = new Set(challenges.flatMap((c) => c.questions.map((q) => q.category)));
-    expect(cats.size).toBe(Object.keys(CATEGORY_CONFIG).length);
+    // Every category rotates in — wildcards only once some are approved.
+    const expected = Object.keys(CATEGORY_CONFIG).filter((c) => c !== "wildcard" || QUESTION_POOL.some((q) => q.category === "wildcard"));
+    expect([...cats].sort()).toEqual(expected.sort());
   });
 });

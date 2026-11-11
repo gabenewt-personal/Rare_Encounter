@@ -19,11 +19,13 @@ npm run dev          # http://localhost:3000
 | `npm run build && npm start` | Production build (the page is fully static) |
 | `npm run data` | Rebuild the dataset from PokéAPI (uses `.cache/`; add `-- --fresh` to refetch) |
 | `npx tsx scripts/rarity-report.ts [questionId…]` | Print estimated rarity distributions for tuning |
+| `npm run report [-- --days 90 --start YYYY-MM-DD --preview --out reports/q.md]` | **Question-quality report** (dev only): simulates N days and lists every prompt with category, answers, difficulty, answer-set completeness, similarity to the last 7 days, answer-type spread; flags problems |
+| `npm run wildcards [-- --list]` | Review curated wildcard prompts: status, counts, typos, duplicates |
 | `npx tsx scripts/synergy-report.ts [days]` | Simulate Team Synergy tiers for different player styles (override with `ALLOWANCE=… QUAD=… TIERS=…`) |
 
 ### Developer mode
 
-Open `/?dev=1` (or `/?dev=1&date=2026-12-25`). You get a **DEV** panel with ◀/▶ day buttons, a date picker, a sample of valid answers for the current prompt, and "Reset dev save". Dev mode uses a **separate save namespace**, so simulating dates never touches real progress — play consecutive simulated days to test streaks and Trainer Classes. Links between Home and the daily challenge keep the dev parameters.
+Open `/?dev=1` (or `/?dev=1&date=2026-12-25`; add `&wildcards=preview` to let **pending** wildcards rotate so you can playtest them before approving). You get a **DEV** panel with ◀/▶ day buttons, a date picker, a sample of valid answers for the current prompt, and "Reset dev save". Dev mode uses a **separate save namespace**, so simulating dates never touches real progress — play consecutive simulated days to test streaks and Trainer Classes. Links between Home and the daily challenge keep the dev parameters.
 
 ## Screens
 
@@ -69,42 +71,86 @@ Moving between screens never resets progress: everything is saved after each act
 
 - **Tuning:** the suggested starting point (allowance 2, tiers 0 / 1–2 / 3–4 / 5+) was simulated over a year of real daily challenges (`scripts/synergy-report.ts`). It rated about half of all thoughtless parties Excellent and almost none Poor, so planning a team wouldn't matter. With allowance 1, 4× weaknesses counting double, and the tiers above, players who ignore typing land at ≈ 16% Excellent · 37% Good · 31% Fair · 17% Poor. The best achievable party is Excellent on ≈ 99% of days and never worse than Good.
 - **Eligibility:** the multiplier applies only when all six answers are valid, distinct Pokémon. Any miss or timeout keeps the plain rarity score. Final = `round(base × multiplier)`, so the bonus is at most +15% and rarity stays the main source of points.
-- **Fair question sets:** a Pokémon type can be the subject of at most one prompt per day (`MAX_PROMPTS_PER_TYPE`), so a day never stacks Ground + Ground/Rock + Ground Gen IV. A test runs a beam search (`src/lib/teamSearch.ts`) over each day's answer sets and confirms the best party is always Good or better.
+- **Fair question sets:** a Pokémon type can be the subject of at most one prompt per day (`MAX_PROMPTS_PER_TYPE`), so a day never stacks Ground + Ground/Rock + Ground Gen IV. Every prompt also records the attacking types ≥75% of its answers are weak to (`forcedWeak`, e.g. "catch by fishing" → Electric/Grass), and no type may be forced by more than two prompts a day. A test runs a beam search (`src/lib/teamSearch.ts`) over each day's answer sets and confirms the best party is always Good or better.
 - **Saved results:** history stores the final `score` plus `baseScore`, `multiplier` and `synergyTier`. Older five-question saves are left untouched. They stay locked, keep their original score, count toward streaks, and simply show "no Team Synergy bonus" with a five-slot party. An unfinished pre-update save for the current day is discarded, because its prompts no longer exist (the seed moved to `v3`).
 
 ### Daily reset
 
 The reset is global at **00:00 UTC** (`RESET_UTC_OFFSET_HOURS` / `RESET_TIMEZONE_LABEL`). Every date key, challenge number, challenge id, countdown and streak calculation uses the same UTC date, so a player in Tokyo and one in Los Angeles always get the same challenge at the same instant. The UI labels dates "UTC" and shows the reset in the player's local time. `tests/reset.test.ts` covers five timezones (including UTC+13:45), the Dec 31 → Jan 1 rollover, Feb 29, and streaks across both. Completing all six prompts, timeouts included, completes the day regardless of score.
 
-## Answer rules
+## Question categories
 
-- **Species are the unit of answering.** Each species once per day.
-- **Names** are matched deterministically: case/accents/punctuation/spaces ignored, `♀/♂` = `f/m` = `female/male`, PokéAPI slugs accepted, plus a few common variants (`Mr Mime`, `Farfetched`, `Nidoran F`). See `src/lib/pokedex.ts`.
-- **Types** use current-generation typing (Clefairy is Fairy). A species qualifies if its **default form or a regional form** (Alolan, Galarian, Hisuian, Paldean) fits; the regional sprite is shown on reveal. Megas, Gigantamax, Rotom appliances, and other battle/cosmetic forms don't count.
+Each prompt has a complete accepted-answer list built from cached PokéAPI data before it can be selected. Nothing is judged at runtime by AI. The small print under each prompt (`description`) states its scope.
+
+| Group (weekly target) | Category | Examples |
+| --- | --- | --- |
+| **Core** (24/42 ≈ 57%) | Types · Dual types · Type + Gen | Ghost-type · Water & Ground · Fire-type from Gen IV |
+| | Names | Starts with B |
+| | Moves (Gen I–IV moves, any learner) | Can learn Thunderbolt |
+| | Abilities (Gen I–IV abilities) | Can have Levitate |
+| **Trivia** (12/42) | Base stats | Base Attack below 30 · Speed ≥ 120 · single highest stat is HP · Attack = Defense |
+| | Locations | A region's first route · a cave · a forest · Safari Zone · Victory Road · Surfing · fishing · Headbutt · Rock Smash |
+| | Evolution | Doesn't evolve · third stage · middle stage · evolves at Lv 40+ · by trade / friendship / time of day / known move |
+| | Pokédex | Height/weight thresholds · official Pokédex color · genderless / always female / always male · Baby · Legendary / Mythical · Egg Groups |
+| | Type matchups | Weak to Ice · 4× weak to Rock · immune to Ground · resists Fire · any 4× weakness |
+| | Name & number patterns | Contains Z · double letter · same first/last letter · 4 or 5 letters · 10+ letters · ends with A · Dex # multiple of 25 |
+| | Generation | Introduced in Gen III |
+| **Wildcard** (6/42) | Curated | More than one head · based on a cat · looks like a man-made object |
+
+### Rules
+
+- **Species are the unit of answering**; each species once per day. Answer counts are computed after this deduplication and after form handling.
+- **Names** are matched deterministically: case/accents/punctuation/spaces ignored, `♀/♂` = `f/m` = `female/male`, PokéAPI slugs accepted, plus a few common variants (`Mr Mime`, `Farfetched`, `Nidoran F`). Name-pattern prompts count letters only (é = e; spaces and symbols ignored).
+- **Typing-based prompts** (types, matchups, abilities, moves) accept a species if its **standard form or a regional form** (Alolan, Galarian, Hisuian, Paldean) fits, using current typing. The regional sprite is shown on reveal. Megas, Gigantamax and battle-only forms never count.
+- **Base stats, height and weight** use the **standard form only**.
 - **Generation** = the species' debut generation (Alolan Vulpix is still Gen I).
-- **Moves** count if PokéAPI records the species (default or regional form) learning it by **any method** — level-up, TM/HM/TR, egg, tutor — in **any main-series version group**. Prompts only *ask about* moves and abilities introduced in Gens I–IV (`PROMPT_FAMILIARITY`), so a prompt is "Thunderbolt", never "Alluring Voice". Answers still span all nine generations.
-- **Abilities** include hidden abilities.
-- **Evolution** prompts credit the Pokémon that evolves (Clefairy uses a Moon Stone, not Clefable). "Trade" includes trade-with-item; "friendship" is any evolution with a friendship requirement.
-- **Name** prompts ("starts with B") use the official English name with accents stripped.
-- Encounter-location prompts are still left out: location data is per-game and often ambiguous.
+- **Moves**: any learn method (level-up, TM/HM/TR, egg, tutor) in any main-series version group PokéAPI records. Only moves from Gens I–IV are *asked about* (`PROMPT_FAMILIARITY`).
+- **Locations**: PokéAPI wild-encounter data (gifts, trades and one-off encounters excluded). This mostly covers Gen I–VII games, and the scope note says so.
+- **Type matchups**: the current 18-type chart, by typing alone. Abilities (Levitate etc.) don't count.
+- **Evolution** prompts credit the Pokémon that evolves (Haunter evolves by trade, not Gengar).
+- **Pokédex color** is the single official color category. That's different from visual wildcards ("red anywhere on its body"), which say "judged from official artwork".
+
+### Curated wildcards
+
+`src/content/wildcards.json` holds subjective or descriptive prompts with a **hand-reviewed accepted-answer list**. Edit it directly; no code changes are needed.
+
+```json
+{ "id": "wild:cat", "prompt": "Name a Pokémon based on a cat.", "description": "Any feline — …",
+  "basis": "concept", "status": "pending", "answers": ["Meowth", "Persian", …], "reviewNotes": "…" }
+```
+
+- `status`: `pending` → `approved` (enters rotation) or `rejected`. **Only approved entries with at least 12 resolvable answers rotate.**
+- `basis`: `visual` (judged from official artwork, and the scope note says so) or `concept` (what the design is based on).
+- `npm run wildcards` checks every entry for unknown names, duplicates and counts, and shows its status. Tests fail on typos.
+- Five starter prompts ship as **pending** (multiple heads, man-made objects, dogs/wolves, cats, shells), with review notes on the borderline picks. With the 14-day no-repeat rule, about **12+ approved wildcards** are needed to reach 6 per week. Until then, unused wildcard slots go to trivia, so core stays at ~57%.
+
+### Difficulty
+
+Bands use an **effective answer count**: raw valid answers × the category's `conceptFactor`. For example, recalling locations (0.6) or Pokédex numbers (0.5) is harder than recalling types (1.0). The guidelines are easy **60+**, medium **25–59** and challenging **12–24**. Prompts with fewer than **12** raw answers are never generated. Threshold prompts (stats, height, weight, evolution level) are generated at round numbers chosen to land in each band.
 
 ## Architecture
 
 ```
 scripts/build-dataset.ts   PokéAPI → trim → validate → cache → generated JSON
+scripts/expanded-categories.ts  Stats, Pokédex, matchup, evolution, location, name-pattern prompts
+scripts/question-report.ts / wildcard-review.ts / synergy-report.ts   dev-only diagnostics
 src/config/game.ts         ALL tunables: difficulty bands + daily layout, per-difficulty
                            category weights, timer, tiers/points, popularity model,
                            trainer classes, reset time
 src/data/generated/        Committed, versioned data used at runtime
   pokedex.json             1,025 species (id, name, gen, types, flags, evolution stage) + regional form typings
   typechart.json           18×18 type effectiveness (PokéAPI, current generation)
-  questions.json           ~750 prompts, each with a verified answer set + relevance hints
+  questions.json           ~730 generated prompts: verified answer set, family, scope note,
+                           forced weaknesses, relevance hints
+src/content/wildcards.json Curated wildcard prompts with review status (edit freely)
 src/lib/                   ── mode-agnostic engine (reused by Survival later) ──
   questionDeck.ts          Difficulty bands, weighted categories, no-repeat dealing,
                            difficultyForRound() ramp for Survival
   validation.ts            Pure answer validation
   rarity.ts                RarityProvider interface, prompt-specific estimate, observed provider
   timer.ts                 Wall-clock timer math
+  questionTraits.ts        Effective difficulty, family, generation tag, forced weaknesses
+  wildcards.ts             Loads/validates curated wildcards; only approved ones rotate
   synergy.ts               Team defensive analysis + multiplier tiers (config-driven)
   teamSearch.ts            Best achievable party for a prompt set (tests/tooling)
   pokedex.ts               Name normalization, lookup, autocomplete search
@@ -121,7 +167,8 @@ src/app/page.tsx           Home        src/app/daily/page.tsx   Daily challenge
 src/components/            Shell (header/footer/settings/help/keyboard), Home, DailyGame,
                            QuestionTimer, AnswerInput, Reveal, Results, PartyBar,
                            PartyAnalysis, TypeBadge, TrainerCard…
-tests/                     Vitest: validation, rarity, daily, timer, reset, streak, synergy
+tests/                     Vitest: validation, expanded categories + wildcards + rotation, rarity,
+                           daily, timer, reset, streak, synergy
 ```
 
 ### Data pipeline
@@ -131,17 +178,31 @@ tests/                     Vitest: validation, rarity, daily, timer, reset, stre
 - `strong`: the textbook answer for *this* prompt. That's the primary type (any Flying type, since Flying is usually listed second), a move learned by level-up that shares the move's type, or a regular (non-hidden) ability.
 - `weak`: a correct but deep-cut answer, such as a regional-form-only match, an off-type move learned only by TM/egg/tutor, or a hidden ability.
 
-### Daily generator
+### Daily generator & rotation
 
-A pure function of the date, the question pool, the config, and `CHALLENGE_SEED_VERSION` (now `v3`):
+A pure, deterministic function of the date, the question pool, the config and `CHALLENGE_SEED_VERSION` (now `v4`):
 
-1. Every day follows `DAILY_LAYOUT` = easy, easy, medium, medium, medium, hard. No type is the subject of more than one prompt.
-2. For each slot, a seeded RNG picks a category by its **per-difficulty weight** (`CATEGORY_CONFIG[cat].weights`), ≤ 2 per category per day. It only considers categories that still have a prompt not used in the last 14 days, so tiny pools sit out instead of repeating.
-3. The `QuestionDeck` deals from seeded shuffled cycles per (difficulty, category).
+1. **Layout:** easy, easy, medium, medium, medium, challenging.
+2. **Weekly plan** (`planWeek`): 42 slots split by `WEEKLY_GROUP_QUOTA` (24 core · 12 trivia · 6 wildcard). Wildcards land on 6 of the 7 days, and trivia gives each day 1–2 prompts. Scarce groups are placed first, in slots whose difficulty they can fill.
+3. **Category pick** within the group, by per-difficulty weight. Categories used yesterday or the day before are damped (`ROTATION_DAMPING`) so they rotate.
+4. **Daily variety rules** (`DAILY_VARIETY`):
+   - one prompt per **family** (never two base-Attack thresholds, or two "can learn" prompts, in a day);
+   - one generation-specific prompt;
+   - one prompt per subject type (immunity prompts count as their type: "immune to Normal" = Ghost);
+   - at most 2 per category;
+   - no attacking type forced as a weakness by more than 2 prompts.
+5. **No repeats:** a prompt isn't reused within 14 days when avoidable, and each (difficulty, category) deck cycles through all of its prompts before reusing any.
+6. **Fallback:** if a group has nothing eligible for a slot (e.g. no approved wildcards), the slot goes to trivia, then core.
 
-The generator replays history from the epoch (memoized). Tests confirm the layout on every day for a year, and **no prompt repeats within 14 days over two simulated years**. The challenge id fingerprints the day's prompts: an unfinished save is discarded if the prompts change, and a **completed** day stays locked regardless.
+The generator replays history from the epoch (memoized). The challenge id fingerprints the day's prompts. An unfinished save is discarded if the prompts change, while a **completed** day stays locked.
 
-> Ship dataset or config changes at the reset (00:00 UTC). Changing weights, pools, or the seed reshuffles future days.
+> Ship dataset or config changes at the reset (00:00 UTC). Changing weights, pools, quotas or the seed reshuffles future days.
+
+**Quality report** (`npm run report`), latest 91-day run:
+- ~56% core prompts; 2 / 3 / 1 difficulty per day.
+- 0 team-constrained days and 0 shared-weakness stacks.
+- Eligible answers span all generations (Gen I ≈ 19%, Gen VI ≈ 6%).
+- Remaining flags are informational: trivia families on 3 days running, Move prompts on 5 days running, and a few similar answer sets within a week.
 
 ### Rarity: prompt-specific estimate now, real data later
 

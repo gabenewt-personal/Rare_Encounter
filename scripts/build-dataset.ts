@@ -17,7 +17,8 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import path from "node:path";
-import { CATEGORY_CONFIG, DIFFICULTY_BANDS, PROMPT_FAMILIARITY, type QuestionCategory } from "../src/config/game";
+import { CATEGORY_CONFIG, FORCED_WEAKNESS_SHARE, MIN_VALID_ANSWERS, PROMPT_FAMILIARITY, type QuestionCategory } from "../src/config/game";
+import { addExpandedCandidates } from "./expanded-categories";
 import type { PokemonType, Question, Species } from "../src/data/types";
 
 const API = "https://pokeapi.co/api/v2";
@@ -101,15 +102,30 @@ interface RawSpecies {
   legendary: boolean; mythical: boolean; baby: boolean;
   chainUrl: string | null; evolvesFrom: string | null;
   varieties: { slug: string; isDefault: boolean }[];
+  /** Official Pokédex colour (e.g. "yellow"). */
+  color: string;
+  /** Eighths female; -1 = genderless. */
+  genderRate: number;
+  eggGroups: string[];
 }
+const SPECIES_TRIM_VERSION = 2;
 interface RawPokemon {
   id: number; slug: string; types: PokemonType[];
   abilities: { name: string; hidden: boolean }[];
   /** levelUp: learned by level-up in at least one game (vs. only TM/egg/tutor). */
   moves: { name: string; levelUp: boolean }[];
+  stats: Record<StatKey, number>;
+  /** Decimetres / hectograms, as PokéAPI reports them. */
+  height: number;
+  weight: number;
 }
-const POKEMON_TRIM_VERSION = 2;
-interface EvoLink { from: string; to: string; trigger: string; item: string | null; happiness: boolean }
+const POKEMON_TRIM_VERSION = 3;
+type StatKey = "hp" | "attack" | "defense" | "special-attack" | "special-defense" | "speed";
+interface EvoLink {
+  from: string; to: string; trigger: string; item: string | null; happiness: boolean;
+  minLevel: number | null; heldItem: string | null; timeOfDay: string; knownMove: boolean; location: boolean;
+}
+const CHAIN_TRIM_VERSION = 2;
 interface RawChain { id: number; links: EvoLink[]; stages: Record<string, number> }
 
 const trimSpecies = (s: any): RawSpecies => ({
@@ -123,6 +139,9 @@ const trimSpecies = (s: any): RawSpecies => ({
   chainUrl: s.evolution_chain?.url ?? null,
   evolvesFrom: s.evolves_from_species?.name ?? null,
   varieties: s.varieties.map((v: any) => ({ slug: v.pokemon.name, isDefault: v.is_default })),
+  color: s.color?.name ?? "",
+  genderRate: s.gender_rate,
+  eggGroups: s.egg_groups.map((g: any) => g.name),
 });
 
 const trimPokemon = (p: any): RawPokemon => ({
@@ -135,6 +154,9 @@ const trimPokemon = (p: any): RawPokemon => ({
     name: m.move.name,
     levelUp: m.version_group_details.some((d: any) => d.move_learn_method?.name === "level-up"),
   })),
+  stats: Object.fromEntries(p.stats.map((x: any) => [x.stat.name, x.base_stat])) as Record<StatKey, number>,
+  height: p.height,
+  weight: p.weight,
 });
 
 function trimChain(c: any): RawChain {
@@ -150,6 +172,11 @@ function trimChain(c: any): RawChain {
           trigger: d.trigger?.name ?? "",
           item: d.item?.name ?? null,
           happiness: d.min_happiness != null,
+          minLevel: d.min_level ?? null,
+          heldItem: d.held_item?.name ?? null,
+          timeOfDay: d.time_of_day ?? "",
+          knownMove: d.known_move != null || d.known_move_type != null,
+          location: d.location != null,
         });
       }
       walk(child, depth + 1);
@@ -176,7 +203,7 @@ async function main() {
   const list = await cached("pokemon-species?limit=5000", (r) =>
     r.results.map((x: any) => x.name as string),
   );
-  const species = await mapLimit(list, (slug) => cached(`pokemon-species/${slug}`, trimSpecies), "species");
+  const species = await mapLimit(list, (slug) => cached(`pokemon-species/${slug}`, trimSpecies, SPECIES_TRIM_VERSION), "species");
   species.sort((a, b) => a.id - b.id);
 
   // 2. Default form + regional variants (Alolan, Galarian, Hisuian, Paldean).
@@ -188,6 +215,23 @@ async function main() {
     }
   }
   const forms = await mapLimit(formSlugs, (f) => cached(`pokemon/${f.slug}`, trimPokemon, POKEMON_TRIM_VERSION), "forms");
+  // Wild encounter data (location areas + methods), default and regional forms.
+  const encounterLists = await mapLimit(
+    formSlugs,
+    (f) =>
+      cached(`pokemon/${f.slug}/encounters`, (list: any[]) =>
+        list.map((e) => ({
+          area: e.location_area.name as string,
+          methods: [...new Set(e.version_details.flatMap((v: any) => v.encounter_details.map((d: any) => d.method.name as string)))] as string[],
+        })),
+      ),
+    "encounters",
+  );
+  const encountersBySpecies = new Map<number, { area: string; methods: string[] }[]>();
+  formSlugs.forEach((f, i) => {
+    encountersBySpecies.set(f.speciesId, [...(encountersBySpecies.get(f.speciesId) ?? []), ...encounterLists[i]]);
+  });
+
   const formsBySpecies = new Map<number, { form: RawPokemon; regional: boolean }[]>();
   formSlugs.forEach((f, i) => {
     const arr = formsBySpecies.get(f.speciesId) ?? [];
@@ -197,10 +241,11 @@ async function main() {
 
   // 3. Evolution chains.
   const chainUrls = [...new Set(species.map((s) => s.chainUrl).filter(Boolean) as string[])];
-  const chains = await mapLimit(chainUrls, (u) => cached(`evolution-chain/${idFromUrl(u)}`, trimChain), "chains");
+  const chains = await mapLimit(chainUrls, (u) => cached(`evolution-chain/${idFromUrl(u)}`, trimChain, CHAIN_TRIM_VERSION), "chains");
   const stageOf = new Map<string, number>();
   const chainOf = new Map<string, number>();
   const hasChildren = new Set<string>();
+  const hasParent = new Set<string>();
   const allLinks: EvoLink[] = [];
   for (const c of chains) {
     for (const [slug, st] of Object.entries(c.stages)) {
@@ -209,6 +254,7 @@ async function main() {
     }
     for (const l of c.links) {
       hasChildren.add(l.from);
+      hasParent.add(l.to);
       allLinks.push(l);
     }
   }
@@ -344,7 +390,7 @@ async function main() {
       for (const { name: a } of form.abilities) (abilityHolders.get(a) ?? abilityHolders.set(a, new Set()).get(a)!).add(s.id);
     }
   }
-  const inRange = (cat: QuestionCategory, n: number) => n >= DIFFICULTY_BANDS.hard.minAnswers && n <= CATEGORY_CONFIG[cat].maxAnswers;
+  const inRange = (cat: QuestionCategory, n: number) => n >= MIN_VALID_ANSWERS && n <= CATEGORY_CONFIG[cat].maxAnswers;
   const usableMoves = [...moveLearners].filter(([, set]) => inRange("move", set.size)).map(([m]) => m);
   const usableAbilities = [...abilityHolders].filter(([, set]) => inRange("ability", set.size)).map(([a]) => a);
   const moveInfo = await mapLimit(usableMoves, (m) => cached(`move/${m}`, trimMove, 2), "moves");
@@ -438,6 +484,55 @@ async function main() {
     for (const f of fs) if (f.regional) regionalForms[f.form.id] = { species: speciesId, types: f.form.types };
   }
 
+  // 5c. Expanded trivia categories (stats, size, Pokédex info, matchups, evolution, locations, name patterns).
+  addExpandedCandidates({
+    species,
+    forms: formsBySpecies,
+    encounters: encountersBySpecies,
+    links: allLinks,
+    stageOf,
+    hasChildren,
+    hasParent,
+    chart,
+    types: TYPES,
+    candidate: (c) => candidate(c),
+    addMatch: (c, id, matches) => addMatch(c as Candidate, id, matches),
+    // Threshold prompts aim for these raw answer counts (easy 60+, medium 25–59, challenging 12–24).
+    bandTargets: [
+      { id: "easy", min: 60, max: 180 },
+      { id: "medium", min: 25, max: 59 },
+      { id: "hard", min: MIN_VALID_ANSWERS, max: 24 },
+    ],
+  });
+
+  const DEFAULT_FAMILY: Partial<Record<QuestionCategory, string>> = {
+    type: "type", dualType: "dual", typeGeneration: "typegen", letter: "name", move: "move", ability: "ability",
+    generation: "generation", evolution: "evo",
+  };
+  const DEFAULT_DESCRIPTION: Partial<Record<QuestionCategory, string>> = {
+    type: "Current typing. Standard or regional form (Alolan, Galarian, Hisuian, Paldean).",
+    dualType: "Exactly these two types, current typing. Standard or regional form.",
+    typeGeneration: "Current typing; generation = when the species debuted. Standard or regional form.",
+    letter: "Official English name; accents ignored.",
+    move: "Learnable by any method (level-up, TM/TR, egg, tutor) in any main-series game.",
+    ability: "Includes Hidden Abilities. Standard or regional form.",
+    generation: "When the species debuted (regional forms don't change it).",
+    evolution: "Credited to the Pokémon that evolves, not its evolution.",
+  };
+  const typesOfAnswer = (speciesId: number, formId: number | null) => {
+    const fs = formsBySpecies.get(speciesId)!;
+    return (formId != null ? fs.find((f) => f.form.id === formId)?.form : fs.find((f) => !f.regional)?.form)!.types;
+  };
+  const weakShare = (c: Candidate) =>
+    TYPES.filter((atk) => {
+      let weak = 0;
+      for (const [id, formId] of c.answers) {
+        const m = typesOfAnswer(id, formId).reduce((x, d) => x * (chart[atk]?.[d] ?? 1), 1);
+        if (m > 1) weak++;
+      }
+      return c.answers.size > 0 && weak / c.answers.size >= FORCED_WEAKNESS_SHARE;
+    });
+
   // 6. Filter by configured answer-count bounds + verify every answer set.
   const speciesIds = new Set(pokedex.map((p) => p.id));
   const questions: Question[] = [];
@@ -449,8 +544,13 @@ async function main() {
     const forms: Record<number, number> = {};
     for (const [sid, fid] of c.answers) if (fid != null) forms[sid] = fid;
     const { strong, weak, ...rest } = c;
+    const forcedWeak = weakShare(c);
     questions.push({
       ...rest,
+      family: c.family ?? DEFAULT_FAMILY[c.category] ?? c.category,
+      ...(c.description || DEFAULT_DESCRIPTION[c.category] ? { description: c.description ?? DEFAULT_DESCRIPTION[c.category] } : {}),
+      ...(c.id.startsWith("dex:multiple") || c.id.startsWith("dex:ends") ? { conceptFactor: 0.5 } : {}),
+      ...(forcedWeak.length ? { forcedWeak } : {}),
       answers,
       ...(Object.keys(forms).length ? { forms } : {}),
       ...(strong.size ? { strong: [...strong].sort((a, b) => a - b) } : {}),

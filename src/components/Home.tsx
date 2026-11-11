@@ -17,7 +17,7 @@ import { TrainerCard } from "@/components/TrainerCard";
 function HomeBody({ ctx }: { ctx: ReturnType<typeof readClientContext> }) {
   const { openHelp, openSettings } = useShell();
   const [data] = useState(() => {
-    const challenge = generateDailyChallenge(ctx.date);
+    const challenge = generateDailyChallenge(ctx.date, { includePendingWildcards: ctx.previewWildcards });
     const session = loadOrCreateSession(ctx.store, challenge);
     // Heals a completed day whose progress write was interrupted (idempotent).
     const progress = persistSession(ctx.store, session);

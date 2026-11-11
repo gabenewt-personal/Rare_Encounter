@@ -86,9 +86,13 @@ describe("dataset accuracy (spot checks against known facts)", () => {
   });
 
   it("knows typings", () => {
-    const wg = q("dual:water-ground").answers;
-    for (const n of ["Swampert", "Quagsire", "Whiscash", "Gastrodon", "Seismitoad"]) expect(wg).toContain(id(n));
-    expect(wg).not.toContain(id("Squirtle"));
+    const water = q("type:water").answers;
+    const ground = q("type:ground").answers;
+    for (const n of ["Swampert", "Quagsire", "Whiscash", "Gastrodon", "Seismitoad"]) {
+      expect(water).toContain(id(n));
+      expect(ground).toContain(id(n));
+    }
+    expect(ground).not.toContain(id("Squirtle"));
     expect(q("type:fairy").answers).toContain(id("Clefairy")); // current-gen typing
   });
 
@@ -98,11 +102,10 @@ describe("dataset accuracy (spot checks against known facts)", () => {
     expect(q("gen:9").answers).toContain(id("Sprigatito"));
   });
 
-  it("knows evolution items (credited to the Pokémon that evolves)", () => {
-    const moon = q("evo:item-moon-stone").answers;
-    expect(moon).toEqual(expect.arrayContaining([id("Clefairy"), id("Jigglypuff"), id("Nidorina"), id("Nidorino"), id("Skitty"), id("Munna")]));
-    expect(moon).not.toContain(id("Clefable"));
+  it("knows evolution methods (credited to the Pokémon that evolves)", () => {
     expect(q("evo:trade").answers).toContain(id("Haunter"));
+    expect(q("evo:trade").answers).not.toContain(id("Gengar"));
+    expect(q("evo:friendship").answers).toContain(id("Pichu"));
   });
 
   it("knows learnsets and abilities", () => {

@@ -14,23 +14,23 @@
  */
 import {
   CATEGORY_CONFIG,
-  DIFFICULTY_BANDS,
+  MIN_VALID_ANSWERS,
   type Difficulty,
   type QuestionCategory,
+  type QuestionGroup,
 } from "@/config/game";
+import { difficultyBand } from "@/lib/questionTraits";
 import type { Question } from "@/data/types";
 import { createRng, shuffle, weightedSample, type Rng } from "@/lib/random";
 
 export const DIFFICULTIES: Difficulty[] = ["easy", "medium", "hard"];
 
-/** Band a question falls in, by its number of valid answers (null = too few). */
+/**
+ * Band a question falls in: effective answer count (raw × conceptual factor),
+ * or null when it has too few raw answers to be used at all.
+ */
 export function difficultyOf(q: Question): Difficulty | null {
-  const n = q.answers.length;
-  for (const d of DIFFICULTIES) {
-    const b = DIFFICULTY_BANDS[d];
-    if (n >= b.minAnswers && n <= b.maxAnswers) return d;
-  }
-  return null;
+  return q.answers.length >= MIN_VALID_ANSWERS ? difficultyBand(q) : null;
 }
 
 /**
@@ -42,8 +42,15 @@ export function typeTags(q: Question): string[] {
   if (kind === "type") return [rest];
   if (kind === "typegen") return [rest.split("-")[0]];
   if (kind === "dual") return rest.split("-");
+  // Immunity prompts are type prompts in disguise ("immune to Normal" = Ghost types).
+  if (kind === "matchup" && rest.startsWith("immune-")) return IMMUNITY_TYPE[rest.slice(7)] ?? [];
   return [];
 }
+
+const IMMUNITY_TYPE: Record<string, string[]> = {
+  normal: ["ghost"], fighting: ["ghost"], ghost: ["normal"], electric: ["ground"], ground: ["flying"],
+  poison: ["steel"], psychic: ["dark"], dragon: ["fairy"],
+};
 
 /** Survival Mode ramp (not used yet): easy → medium → hard as rounds go on. */
 export function difficultyForRound(round: number): Difficulty {
@@ -81,11 +88,12 @@ export class QuestionDeck {
     return this.cfg[cat]?.weights[d] ?? 0;
   }
 
-  /** Categories that can fill a slot of this difficulty. */
-  categories(d: Difficulty): QuestionCategory[] {
+  /** Categories that can fill a slot of this difficulty (optionally within one group). */
+  categories(d: Difficulty, group?: QuestionGroup): QuestionCategory[] {
     return [...this.groups.keys()]
       .filter((k) => k.startsWith(`${d}:`))
       .map((k) => k.slice(d.length + 1) as QuestionCategory)
+      .filter((c) => !group || this.cfg[c]?.group === group)
       .sort();
   }
 
@@ -99,9 +107,16 @@ export class QuestionDeck {
     return this.groups.get(`${d}:${cat}`)?.some(ok) ?? false;
   }
 
-  pickCategory(d: Difficulty, rng: Rng, allowed: (c: QuestionCategory) => boolean = () => true): QuestionCategory | null {
-    const cats = this.categories(d).filter(allowed);
-    return weightedSample(cats, (c) => this.weight(c, d), 1, rng)[0] ?? null;
+  pickCategory(
+    d: Difficulty,
+    rng: Rng,
+    allowed: (c: QuestionCategory) => boolean = () => true,
+    group?: QuestionGroup,
+    /** Multiplier on a category's weight (e.g. damp categories used yesterday). */
+    adjust: (c: QuestionCategory) => number = () => 1,
+  ): QuestionCategory | null {
+    const cats = this.categories(d, group).filter(allowed);
+    return weightedSample(cats, (c) => this.weight(c, d) * adjust(c), 1, rng)[0] ?? null;
   }
 
   private cycleOrder(key: string, cycle: number, prev?: Question[]): Question[] {

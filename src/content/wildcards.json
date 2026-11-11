@@ -1,0 +1,73 @@
+{
+  "about": "Curated wildcard prompts. Edit freely — no code changes needed. Only entries with \"status\": \"approved\" enter the daily rotation (and only if they have at least 12 resolvable answers). Use official English names; spelling variants accepted by the game work too. Run `npm run wildcards` to check names, counts and statuses. 'basis' is 'visual' for subjective appearance-based prompts (judged from official artwork, NOT the Pokédex color) or 'concept' for what a design is based on.",
+  "prompts": [
+    {
+      "id": "wild:multiple-heads",
+      "prompt": "Name a Pokémon with more than one head.",
+      "description": "Two or more heads or faces, including Pokémon made of several linked bodies (curated list).",
+      "basis": "visual",
+      "status": "pending",
+      "answers": [
+        "Doduo", "Dodrio", "Magneton", "Dugtrio", "Exeggcute", "Exeggutor", "Weezing", "Girafarig", "Farigiraf",
+        "Binacle", "Barbaracle", "Zweilous", "Hydreigon", "Combee", "Klink", "Klang", "Klinklang",
+        "Tandemaus", "Maushold", "Falinks", "Scovillain", "Wugtrio"
+      ],
+      "reviewNotes": "Borderline, deliberately included: Girafarig/Farigiraf (tail head), Hydreigon (hand heads), Barbaracle (hand faces), Klink line (faces on gears), Falinks (six troopers). Deliberately excluded: Magnezone (one face), Koffing/Diglett/Deino/Wiglett (one head)."
+    },
+    {
+      "id": "wild:man-made-object",
+      "prompt": "Name a Pokémon that looks like a man-made object.",
+      "description": "Designs based on manufactured things — tools, furniture, food, machines (curated list).",
+      "basis": "concept",
+      "status": "pending",
+      "answers": [
+        "Voltorb", "Electrode", "Magnemite", "Magneton", "Magnezone", "Bronzor", "Bronzong", "Chingling", "Chimecho",
+        "Vanillite", "Vanillish", "Vanilluxe", "Trubbish", "Garbodor", "Litwick", "Lampent", "Chandelure",
+        "Honedge", "Doublade", "Aegislash", "Klefki", "Klink", "Klang", "Klinklang", "Sinistea", "Polteageist",
+        "Poltchageist", "Sinistcha", "Dhelmise", "Cofagrigus", "Gimmighoul", "Varoom", "Revavroom", "Stakataka",
+        "Kartana", "Celesteela", "Duraludon", "Archaludon", "Banette", "Baltoy", "Claydol", "Carkol"
+      ],
+      "reviewNotes": "Includes food items (Vanillite line, Sinistea/Poltchageist lines). Excluded natural objects (Sudowoodo, Bonsly, Applin, Pumpkaboo), costumes (Mimikyu) and digital beings (Porygon line). Check Carkol (mine cart), Banette (doll) and Kartana (origami)."
+    },
+    {
+      "id": "wild:dog-or-wolf",
+      "prompt": "Name a Pokémon based on a dog or a wolf.",
+      "description": "Domestic dogs, wolves and jackals — foxes and other canines don't count (curated list).",
+      "basis": "concept",
+      "status": "pending",
+      "answers": [
+        "Growlithe", "Arcanine", "Snubbull", "Granbull", "Houndour", "Houndoom", "Smeargle", "Poochyena", "Mightyena",
+        "Electrike", "Manectric", "Riolu", "Lucario", "Lillipup", "Herdier", "Stoutland", "Furfrou", "Rockruff",
+        "Lycanroc", "Yamper", "Boltund", "Zacian", "Zamazenta", "Maschiff", "Mabosstiff", "Fidough", "Dachsbun",
+        "Greavard", "Houndstone", "Okidogi"
+      ],
+      "reviewNotes": "Riolu/Lucario are jackal-inspired; Smeargle is a beagle; Electrike/Manectric are commonly described as dog/wolf-like. Foxes (Vulpix, Zorua, Nickit lines) intentionally excluded."
+    },
+    {
+      "id": "wild:cat",
+      "prompt": "Name a Pokémon based on a cat.",
+      "description": "Any feline — house cats, lions, lynxes and tigers (curated list).",
+      "basis": "concept",
+      "status": "pending",
+      "answers": [
+        "Meowth", "Persian", "Perrserker", "Skitty", "Delcatty", "Glameow", "Purugly", "Shinx", "Luxio", "Luxray",
+        "Purrloin", "Liepard", "Litleo", "Pyroar", "Espurr", "Meowstic", "Litten", "Torracat", "Incineroar",
+        "Sprigatito", "Floragato", "Meowscarada", "Raikou", "Solgaleo", "Zeraora", "Mew"
+      ],
+      "reviewNotes": "Mew and Zeraora are described as feline in official material — confirm. Excluded: Entei (often called lion/dog), Absol, Espeon (not officially feline)."
+    },
+    {
+      "id": "wild:shell",
+      "prompt": "Name a Pokémon with a visible shell.",
+      "description": "A shell (or shell-like carapace) on its body in official artwork (curated list).",
+      "basis": "visual",
+      "status": "pending",
+      "answers": [
+        "Squirtle", "Wartortle", "Blastoise", "Shellder", "Cloyster", "Slowbro", "Omanyte", "Omastar", "Kabuto",
+        "Lapras", "Shuckle", "Torkoal", "Magcargo", "Clamperl", "Turtwig", "Grotle", "Torterra", "Tirtouga",
+        "Carracosta", "Shelmet", "Escavalier", "Dwebble", "Crustle", "Turtonator", "Chewtle", "Drednaw"
+      ],
+      "reviewNotes": "Escavalier wears Shelmet's shell; Dwebble/Crustle carry rock 'shells'. Excluded: Kabutops (shell not prominent), Oshawott (scalchop is held), Shellos/Gastrodon (no shell). Galarian Slowbro also has Shellder."
+    }
+  ]
+}
